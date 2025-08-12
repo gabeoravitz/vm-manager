@@ -2756,7 +2756,7 @@ class Handler(BaseHTTPRequestHandler):
                         elif device == 'network':
                             boot_xml += "<boot dev='network'/>"
                     disk_xml="".join(
-                        f"<disk type='file' device='disk'><driver name='qemu' type='raw'/><source file='{html.escape(p)}'/><target dev='{html.escape(t)}' bus='{html.escape(b)}'/></disk>" for p,b,t in disks
+                        f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{html.escape(p)}'/><target dev='{html.escape(t)}' bus='{html.escape(b)}'/></disk>" for p,b,t in disks
                     )
                     dom=f"""<domain type='kvm'><name>{name}</name><memory unit='MiB'>{mem}</memory><currentMemory unit='MiB'>{mem}</currentMemory><vcpu>{vcpus}</vcpu><os><type arch='x86_64' machine='{machine}'>hvm</type>{loader_xml}{boot_xml}</os><features><acpi/><apic/></features><cpu mode='host-model'/><devices><emulator>/usr/libexec/qemu-kvm</emulator>{disk_xml}<interface type='bridge'><source bridge='{bridge}'/><model type='{nic_model}'/></interface><graphics type='vnc' port='-1' listen='127.0.0.1'/><console type='pty'/></devices></domain>"""
                     lv.conn.defineXML(dom)
