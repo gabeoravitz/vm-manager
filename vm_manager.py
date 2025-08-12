@@ -2721,9 +2721,9 @@ class Handler(BaseHTTPRequestHandler):
                                     shutil.copy2(src_path, dest)
                             disk_path=dest
                         else:
-                            disk_name=f"disk{i+1}.raw"
+                            disk_name=f"disk{i+1}.qcow2"
                             disk_path=os.path.join(vm_dir,disk_name)
-                            subprocess.check_call(['qemu-img','create','-f','raw',disk_path,f'{size_gb}G'])
+                            subprocess.check_call(['qemu-img','create','-f','qcow2',disk_path,f'{size_gb}G'])
                         # Validate / normalize target; auto-fix duplicates or invalid entries
                         base_prefix={'virtio':'vd','scsi':'sd','sata':'hd'}.get(bus,'vd')
                         def valid_format(t):
@@ -6513,7 +6513,7 @@ class Handler(BaseHTTPRequestHandler):
                     msg += "<div class='inline-note'>Extra disk created (not yet attached, use domain page to attach).</div>"
             except Exception as e: msg=f"<div class='inline-note'>{html.escape(str(e))}</div>"
         pool_opts=''.join(f"<option>{html.escape(p.name())}</option>" for p in lv.list_pools())
-        # for clone dropdown: show imported images (.raw) in selected pool
+        # for clone dropdown: show imported images (.qcow2) in selected pool
         selected_pool=form.get('pool',[lv.list_pools()[0].name() if lv.list_pools() else ''])[0] if form else (lv.list_pools()[0].name() if lv.list_pools() else '')
         imported=[]
         try:
@@ -6524,7 +6524,7 @@ class Handler(BaseHTTPRequestHandler):
                 idir=os.path.join(pool_path,'images')
                 if os.path.isdir(idir):
                     for f in os.listdir(idir):
-                        if f.endswith('.raw'): imported.append(f)
+                        if f.endswith('.qcow2'): imported.append(f)
         except Exception: pass
         clone_opts='<option value="">(none)</option>'+''.join(f"<option value='{html.escape(f)}'>{html.escape(f)}</option>" for f in imported)
         # bridge list for creation
@@ -6563,7 +6563,7 @@ class Handler(BaseHTTPRequestHandler):
                 idir=os.path.join(pool_path,'images')
                 if os.path.isdir(idir):
                     for f in os.listdir(idir):
-                        if f.endswith('.raw'): imported.append(f)
+                        if f.endswith('.qcow2'): imported.append(f)
             except Exception: pass
         imported=sorted(set(imported))
         imported_opts='<option value="">(none)</option>'+''.join(f"<option value='{html.escape(f)}'>{html.escape(f)}</option>" for f in imported)
