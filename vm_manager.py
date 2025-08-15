@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Enhanced single-file libvirt VM manager with, backups, snapshots, security, and advanced features.
-Supports VM snapshots, backups, enhanced networking, SSL, authentication, and more.
+Supports snapshots, backups, enhanced networking, SSL, authentication, and more.
 All assets inline. Requires python3-libvirt, python3-cryptography (optional for SSL).
 """
 from __future__ import annotations
