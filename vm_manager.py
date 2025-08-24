@@ -6979,14 +6979,20 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     raise RuntimeError(f'Error accessing storage pool: {str(e)}')
                 
-                # Auto-fill output name for ISO files
-                if src.lower().endswith('.iso'):
-                    # Extract filename without path and use as output name
-                    base_name = os.path.basename(src)
-                    if base_name.lower().endswith('.iso'):
-                        out = base_name[:-4]  # Remove .iso extension
+                # Auto-extract filename from URL/path for all image types
+                if not out or out == 'imported':
+                    # Extract filename from URL or path
+                    base_name = os.path.basename(src.split('?')[0])  # Remove query params from URLs
+                    if base_name:
+                        # Remove common extensions to get clean name
+                        for ext in ['.iso', '.qcow2', '.raw', '.img', '.vmdk']:
+                            if base_name.lower().endswith(ext):
+                                out = base_name[:-len(ext)]
+                                break
+                        else:
+                            out = base_name
                     else:
-                        out = base_name
+                        out = 'imported'
                         
                 pid = str(time.time())
                 start_image_ingest(pid, pool_name, src, out)
@@ -7336,14 +7342,46 @@ class Handler(BaseHTTPRequestHandler):
                     }});
                     
                     if (hasActiveProgress) {{
-                        // Simple page reload to update progress
-                        window.location.reload();
+                        // Fetch updated progress without full page reload
+                        fetch('/?images=1')
+                            .then(response => response.text())
+                            .then(html => {{
+                                const parser = new DOMParser();
+                                const doc = parser.parseFromString(html, 'text/html');
+                                
+                                // Update progress bars in place
+                                const currentCards = document.querySelectorAll('.card');
+                                const newCards = doc.querySelectorAll('.card');
+                                
+                                currentCards.forEach(currentCard => {{
+                                    const currentProgressBar = currentCard.querySelector('div[style*="height:4px"]');
+                                    if (currentProgressBar) {{
+                                        // Find matching card in new HTML
+                                        const cardText = currentCard.textContent;
+                                        newCards.forEach(newCard => {{
+                                            if (newCard.textContent.includes(cardText.split(' ')[0])) {{
+                                                const newProgressSection = newCard.querySelector('div[style*="margin-top:8px"]');
+                                                if (newProgressSection) {{
+                                                    const oldProgressSection = currentCard.querySelector('div[style*="margin-top:8px"]');
+                                                    if (oldProgressSection) {{
+                                                        oldProgressSection.innerHTML = newProgressSection.innerHTML;
+                                                    }}
+                                                }}
+                                            }}
+                                        }});
+                                    }}
+                                }});
+                            }})
+                            .catch(error => {{
+                                console.log('Progress update failed, falling back to reload');
+                                window.location.reload();
+                            }});
                     }} else {{
                         // No more active progress, clear interval
                         clearInterval(window.imageProgressInterval);
                         window.imageProgressInterval = null;
                     }}
-                }}, 3000); // Refresh every 3 seconds
+                }}, 2000); // Update every 2 seconds
             }}
             </script>
             """
