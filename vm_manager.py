@@ -4355,6 +4355,7 @@ class Handler(BaseHTTPRequestHandler):
                                 template_path = os.path.join(TEMPLATES_DIR, template_file)
                                 if os.path.exists(template_path):
                                     # Copy template and resize
+                                    import subprocess
                                     cmd = ['cp', '--reflink=always', template_path, disk_path]
                                     subprocess.run(cmd, check=True, capture_output=True, timeout=30)
                                     # Always resize to match requested size (unless 0 = keep template size)
@@ -4367,6 +4368,7 @@ class Handler(BaseHTTPRequestHandler):
                             elif size_gb > 50:  # For large disks, create asynchronously
                                 def create_disk_async():
                                     try:
+                                        import subprocess
                                         cmd = ['qemu-img', 'create', '-f', 'qcow2', disk_path, f'{size_gb}G']
                                         subprocess.run(cmd, check=True, capture_output=True)
                                         logger.info(f"Created disk {disk_path} ({size_gb}GB)")
@@ -4379,6 +4381,7 @@ class Handler(BaseHTTPRequestHandler):
                                 attach_immediately = False
                             else:
                                 # Create smaller disks synchronously for immediate attachment
+                                import subprocess
                                 cmd = ['qemu-img', 'create', '-f', 'qcow2', disk_path, f'{size_gb}G']
                                 result = subprocess.run(cmd, check=True, capture_output=True, timeout=30)
                                 attach_immediately = True
@@ -6945,7 +6948,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except Exception as e:
                 msg += f"<div class='inline-note'>{html.escape(str(e))}</div>"
+        # Create beautiful image cards without pool expansion
         rows = []
+        all_images = []
+        
         for p in lv.list_pools():
             try:
                 import xml.etree.ElementTree as ET
@@ -6953,37 +6959,90 @@ class Handler(BaseHTTPRequestHandler):
                 proot = ET.fromstring(pxml)
                 pool_path = proot.findtext('.//target/path') or ''
                 idir = os.path.join(pool_path, 'images')
-                imgs = []
+                
                 if os.path.isdir(idir):
                     for f in sorted(os.listdir(idir)):
                         if f.endswith('.raw') or f.endswith('.iso') or f.endswith('.qcow2'):
                             path = os.path.join(idir, f)
                             try:
                                 size = os.path.getsize(path)
-                                # progress indicator if active
-                                active = ''
-                                for pid,data in PROGRESS.items():
-                                    if data.get('msg','').endswith(f):
-                                        pct=data.get('pct',0)
-                                        status = data.get('status','')
-                                        msg = data.get('msg','')
-                                        # Enhanced progress display with bar
-                                        color = '#4CAF50' if status=='done' else '#ff6b6b' if status=='error' else '#2196F3'
-                                        progress_bar = f"<div style='width:80px;height:8px;background:#ddd;border:1px solid #999;display:inline-block;vertical-align:middle;margin:0 4px'><div style='width:{pct}%;height:100%;background:{color};transition:width 0.3s'></div></div>"
-                                        active=f" <span class='inline-note'>{progress_bar} {pct:.1f}% {html.escape(status)} - {html.escape(msg)}</span>"
-                                imgs.append(
-                                    f"<li><span class='badge secondary'>{html.escape(f)}</span> <span class='inline-note'>{human_bytes(size)}</span> <span class='inline-note'>{html.escape(path)}</span> <form method='post' action='/?images=1' class='inline' style='display:inline;margin-left:6px'><input type='hidden' name='delete_image' value='1'><input type='hidden' name='pool' value='{html.escape(p.name())}'><input type='hidden' name='image' value='{html.escape(f)}'><button class='small danger' onclick=\"return confirm('Delete image?')\" type='submit'>Delete</button></form>{active}</li>"
-                                )
+                                # Determine file type icon
+                                if f.endswith('.iso'):
+                                    icon = '💿'
+                                    type_label = 'ISO'
+                                elif f.endswith('.qcow2'):
+                                    icon = '💾'
+                                    type_label = 'QCOW2'
+                                else:
+                                    icon = '🗄️'
+                                    type_label = 'RAW'
+                                
+                                # Check for active progress
+                                progress_info = ''
+                                for pid, data in PROGRESS.items():
+                                    if data.get('msg', '').endswith(f):
+                                        pct = data.get('pct', 0)
+                                        status = data.get('status', '')
+                                        if status == 'running':
+                                            progress_info = f"""
+                                            <div style='margin-top:8px'>
+                                                <div style='font-size:12px;color:var(--text-secondary);margin-bottom:4px'>Importing... {pct:.1f}%</div>
+                                                <div style='width:100%;height:4px;background:var(--card-secondary);border-radius:2px;overflow:hidden'>
+                                                    <div style='width:{pct}%;height:100%;background:var(--primary);transition:width 0.3s'></div>
+                                                </div>
+                                            </div>
+                                            """
+                                
+                                all_images.append({
+                                    'name': f,
+                                    'pool': p.name(),
+                                    'size': size,
+                                    'path': path,
+                                    'icon': icon,
+                                    'type': type_label,
+                                    'progress': progress_info
+                                })
                             except OSError:
-                                # Skip files that can't be accessed
                                 continue
-                rows.append(
-                    f"<details><summary><strong>{html.escape(p.name())}</strong> images folder ({len(imgs)} files)</summary><ul>{''.join(imgs) or '<li><em>No images found in images/ folder</em></li>'}</ul></details>"
-                )
-            except Exception as e:
-                rows.append(
-                    f"<details><summary>{html.escape(p.name())}</summary><p class='inline-note error'>Error: {html.escape(str(e))}</p></details>"
-                )
+            except Exception:
+                continue
+        
+        # Create beautiful image cards
+        if all_images:
+            for img in all_images:
+                card = f"""
+                <div class='card' style='margin:8px 0;padding:16px;font-family:inherit'>
+                    <div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'>
+                        <div style='display:flex;align-items:center;gap:12px;flex:1'>
+                            <span style='font-size:24px'>{img['icon']}</span>
+                            <div>
+                                <div style='font-weight:500;color:var(--fg);font-size:16px'>{html.escape(img['name'])}</div>
+                                <div style='font-size:12px;color:var(--text-secondary);margin-top:2px'>
+                                    {img['type']} • {human_bytes(img['size'])} • {html.escape(img['pool'])} pool
+                                </div>
+                            </div>
+                        </div>
+                        <form method='post' action='/?images=1' style='margin:0'>
+                            <input type='hidden' name='delete_image' value='1'>
+                            <input type='hidden' name='pool' value='{html.escape(img['pool'])}'>
+                            <input type='hidden' name='image' value='{html.escape(img['name'])}'>
+                            <button class='button danger small' onclick="return confirm('Delete image?')" type='submit'>
+                                🗑️ Delete
+                            </button>
+                        </form>
+                    </div>
+                    {img['progress']}
+                </div>
+                """
+                rows.append(card)
+        else:
+            rows.append("""
+            <div class='card' style='text-align:center;padding:40px;color:var(--text-secondary)'>
+                <div style='font-size:48px;margin-bottom:16px'>📁</div>
+                <div style='font-size:16px;margin-bottom:8px'>No images found</div>
+                <div style='font-size:14px'>Import an image to get started</div>
+            </div>
+            """)
         pools_opts = ''.join(
             f"<option>{html.escape(p.name())}</option>" for p in lv.list_pools()
         )
