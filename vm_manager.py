@@ -4174,7 +4174,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif op == 'autostart': d.setAutostart(1)
                 elif op == 'noautostart': d.setAutostart(0)
                 # immediate redirect to avoid double-click perception
-                return f"<div class='card'><p>Operation done...</p><meta http-equiv='refresh' content='0;url=/?domain={html.escape(name)}'></div>"
+                # For undefine operation, redirect to dashboard; for others, back to domain page
+                redirect_url = "/" if op == 'undefine' else f"/?domain={html.escape(name)}"
+                return f"<div class='card'><p>Operation done...</p><meta http-equiv='refresh' content='0;url={redirect_url}'></div>"
             except Exception as e:
                 msg += f"<div class='inline-note'>{html.escape(str(e))}</div>"
         if form:
