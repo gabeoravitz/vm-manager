@@ -1095,7 +1095,7 @@ def start_image_ingest(pid:str,pool_name:str,src:str,out:str):
                 for vers in ('4.2','4','3',''):  # attempt different NFS versions
                     opts=['-o',f'ro,soft,timeo=5,retrans=2'+(f',vers={vers}' if vers else '')]
                     try:
-                        subprocess.check_call(['mount','-t','nfs']+opts+[f'{host}:{export}',nfs_mount_point], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.check_call(['sudo','mount','-t','nfs']+opts+[f'{host}:{export}',nfs_mount_point], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         mount_ok=True
                         break
                     except subprocess.CalledProcessError:
