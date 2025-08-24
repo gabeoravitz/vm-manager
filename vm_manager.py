@@ -4476,39 +4476,132 @@ class Handler(BaseHTTPRequestHandler):
                         msg += f"<div class='inline-note error'>Please specify disk size or select an existing image.</div>"
                     
                 # Handle CD/DVD attachment
-                if 'attach_cdrom' in form: 
+                if 'attach_cdrom' in form:
                     try:
-                        cdrom_iso = form.get('cdrom_iso', [''])[0]
-                        if cdrom_iso and '::' in cdrom_iso:
-                            pool_name, iso_name = cdrom_iso.split('::', 1)
-                            pool = lv.get_pool(pool_name)
-                            if pool:
-                                # Get the pool path from XML
-                                pxml = pool.XMLDesc(0)
-                                import xml.etree.ElementTree as ET
-                                proot = ET.fromstring(pxml)
-                                pool_path = proot.findtext('.//target/path') or ''
-                                iso_path = os.path.join(pool_path, 'images', iso_name)
+                        iso_path = form.get('cdrom_iso', [''])[0].strip()
+                        if not iso_path:
+                            msg += "<div class='inline-note error'>Please select an ISO image to attach.</div>"
+                        else:
+                            # Check if this is a pool::iso format
+                            if '::' in iso_path:
+                                pool_name, iso_name = iso_path.split('::', 1)
+                                if not pool_name or not iso_name:
+                                    msg += "<div class='inline-note error'>Invalid ISO selection format. Please select a valid ISO image.</div>"
+                                    return self.page_dashboard(lv, msg=msg)
+                                    
+                                pool = lv.get_pool(pool_name)
+                                if pool and pool.isActive():
+                                    # Get the pool's path
+                                    try:
+                                        pool_xml = pool.XMLDesc()
+                                        import xml.etree.ElementTree as ET
+                                        pool_root = ET.fromstring(pool_xml)
+                                        pool_path = pool_root.findtext('.//target/path')
+                                        if pool_path:
+                                            # Construct full path to ISO
+                                            iso_path = os.path.join(pool_path, 'images', iso_name)
+                                            if not os.path.exists(iso_path):
+                                                msg += f"<div class='inline-note error'>ISO file not found: {html.escape(iso_path)}</div>"
+                                                return self.page_dashboard(lv, msg=msg)
+                                        else:
+                                            msg += f"<div class='inline-note error'>Could not determine path for pool {html.escape(pool_name)}</div>"
+                                            return self.page_dashboard(lv, msg=msg)
+                                    except Exception as e:
+                                        msg += f"<div class='inline-note error'>Error accessing pool {html.escape(pool_name)}: {html.escape(str(e))}</div>"
+                                        return self.page_dashboard(lv, msg=msg)
+                                else:
+                                    msg += f"<div class='inline-note error'>Storage pool not found or inactive: {html.escape(pool_name)}</div>"
+                                    return self.page_dashboard(lv, msg=msg)
+                            
+                            # Verify the ISO file exists if it's a direct path
+                            elif not os.path.isfile(iso_path):
+                                msg += f"<div class='inline-note error'>ISO file not found: {html.escape(iso_path)}</div>"
+                                return self.page_dashboard(lv, msg=msg)
+                            
+                            # Find next available CD-ROM target
+                            dom_xml = d.XMLDesc(0)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            
+                            # Get existing CD-ROM targets
+                            existing_cdroms = set()
+                            for disk in root.findall('.//devices/disk'):
+                                if disk.get('device') == 'cdrom':
+                                    target = disk.find('target')
+                                    if target is not None and 'dev' in target.attrib:
+                                        existing_cdroms.add(target.get('dev'))
+                            
+                            # Find next available target (hda, hdb, etc.)
+                            cdrom_letters = 'abcdefghijklmnopqrstuvwxyz'
+                            tgt = None
+                            for letter in cdrom_letters:
+                                candidate = f'hd{letter}'
+                                if candidate not in existing_cdroms:
+                                    tgt = candidate
+                                    break
+                            
+                            if tgt:
+                                # Escape the ISO path for XML
+                                safe_iso_path = html.escape(iso_path)
+                                cdrom_xml = f"""<disk type='file' device='cdrom'>
+                                    <driver name='qemu' type='raw'/>
+                                    <source file='{safe_iso_path}'/>
+                                    <target dev='{tgt}' bus='ide'/>
+                                    <readonly/>
+                                    <boot order='2'/>
+                                </disk>"""
                                 
-                                if os.path.exists(iso_path):
-                                    # Find next available CD-ROM target
-                                    dom_xml = d.XMLDesc(0)
-                                    root = ET.fromstring(dom_xml)
-                                    existing_cdroms = [disk.find('target').get('dev') for disk in root.findall('.//devices/disk[@device="cdrom"]') if disk.find('target') is not None]
-                                    
-                                    # Generate next available CD-ROM target (hda, hdb, hdc, etc.)
-                                    cdrom_letters = 'abcdefghijklmnopqrstuvwxyz'
-                                    tgt = None
-                                    for letter in cdrom_letters:
-                                        candidate = f'hd{letter}'
-                                        if candidate not in existing_cdroms:
-                                            tgt = candidate
+                                # Use appropriate flags based on VM state
+                                state, _ = d.state()
+                                if state == libvirt.VIR_DOMAIN_RUNNING:
+                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                else:
+                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                
+                                try:
+                                    d.attachDeviceFlags(cdrom_xml, flags)
+                                    msg += f"<div class='inline-note success'>✅ CD/DVD attached successfully as {tgt}.</div>"
+                                    logger.info(f"Attached ISO {iso_path} to VM {name} as {tgt}")
+                                except libvirt.libvirtError as e:
+                                    error_msg = str(e)
+                                    if 'already in use by domain' in error_msg.lower():
+                                        msg += "<div class='inline-note error'>This ISO is already attached to the VM.</div>"
+                                    else:
+                                        msg += f"<div class='inline-note error'>Failed to attach CD/DVD: {html.escape(error_msg)}</div>"
+                                        logger.error(f"Failed to attach ISO {iso_path} to VM {name}: {error_msg}")
+                            else:
+                                msg += "<div class='inline-note error'>No available CD-ROM targets. Maximum number of CD/DVD drives reached.</div>"
+                    except Exception as e:
+                        error_msg = str(e)
+                        msg += f"<div class='inline-note error'>Failed to process CD/DVD attachment: {html.escape(error_msg)}</div>"
+                        logger.error(f"Error in CD/DVD attachment: {error_msg}", exc_info=True)
+                
+                # Handle CD/DVD eject
+                if 'eject_cdrom' in form:
+                    tgt = form.get('cdrom_target', [''])[0].strip()
+                    if not tgt:
+                        msg += "<div class='inline-note error'>No CD/DVD target specified for ejection.</div>"
+                    else:
+                        try:
+                            dom_xml = d.XMLDesc(0)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            disk_found = False
+                            
+                            for disk in root.findall('.//devices/disk'):
+                                if disk.get('device') == 'cdrom':
+                                    t = disk.find('target')
+                                    if t is not None and t.get('dev') == tgt:
+                                        disk_found = True
+                                        # Check if there's actually media to eject
+                                        source = disk.find('source')
+                                        if source is None or 'file' not in source.attrib:
+                                            msg += f"<div class='inline-note warning'>No media found in {tgt} to eject.</div>"
                                             break
-                                    
-                                    if tgt:
-                                        cdrom_xml = f"""<disk type='file' device='cdrom'>
+                                            
+                                        # Create empty CD-ROM XML (eject)
+                                        ejected_xml = f"""<disk type='file' device='cdrom'>
                                             <driver name='qemu' type='raw'/>
-                                            <source file='{html.escape(iso_path)}'/>
                                             <target dev='{tgt}' bus='ide'/>
                                             <readonly/>
                                         </disk>"""
@@ -4519,72 +4612,73 @@ class Handler(BaseHTTPRequestHandler):
                                             flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
                                         else:
                                             flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
-                                            
-                                        d.attachDeviceFlags(cdrom_xml, flags)
-                                        msg += f"<div class='inline-note'>CD/DVD attached successfully as {tgt}.</div>"
-                                    else:
-                                        msg += "<div class='inline-note error'>No available CD-ROM targets.</div>"
-                                else:
-                                    msg += f"<div class='inline-note error'>ISO file not found in pool: {pool_name}/{iso_name}</div>"
-                            else:
-                                msg += f"<div class='inline-note error'>Storage pool not found: {pool_name}</div>"
-                        else:
-                            msg += "<div class='inline-note error'>Please select a valid ISO image.</div>"
-                    except Exception as e:
-                        msg += f"<div class='inline-note error'>Failed to attach CD/DVD: {html.escape(str(e))}</div>"
-                
-                # Handle CD/DVD eject
-                if 'eject_cdrom' in form:
-                    try:
-                        tgt = form.get('cdrom_target', [''])[0]
-                        dom_xml = d.XMLDesc(0)
-                        import xml.etree.ElementTree as ET
-                        root = ET.fromstring(dom_xml)
-                        for disk in root.findall('.//devices/disk'):
-                            t = disk.find('target')
-                            if t is not None and t.get('dev') == tgt:
-                                # Create empty CD-ROM XML (eject)
-                                ejected_xml = f"""<disk type='file' device='cdrom'>
-                                    <driver name='qemu' type='raw'/>
-                                    <target dev='{tgt}' bus='ide'/>
-                                    <readonly/>
-                                </disk>"""
+                                        
+                                        try:
+                                            d.updateDeviceFlags(ejected_xml, flags)
+                                            msg += f"<div class='inline-note success'>✅ CD/DVD ejected from {tgt}.</div>"
+                                            logger.info(f"Ejected CD/DVD from {tgt} on VM {name}")
+                                        except libvirt.libvirtError as e:
+                                            error_msg = str(e)
+                                            if 'not found' in error_msg.lower():
+                                                msg += f"<div class='inline-note error'>CD/DVD device {tgt} not found.</div>"
+                                            else:
+                                                msg += f"<div class='inline-note error'>Failed to eject CD/DVD: {html.escape(error_msg)}</div>"
+                                                logger.error(f"Failed to eject CD/DVD from {tgt} on VM {name}: {error_msg}")
+                                        break
+                            
+                            if not disk_found:
+                                msg += f"<div class='inline-note error'>CD/DVD device {tgt} not found.</div>"
                                 
-                                # Use appropriate flags based on VM state
-                                state, _ = d.state()
-                                if state == libvirt.VIR_DOMAIN_RUNNING:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
-                                else:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
-                                
-                                d.updateDeviceFlags(ejected_xml, flags)
-                                msg += f"<div class='inline-note'>CD/DVD ejected from {tgt}.</div>"
-                                break
-                    except Exception as e:
-                        msg += f"<div class='inline-note error'>Failed to eject CD/DVD: {html.escape(str(e))}</div>"
+                        except Exception as e:
+                            error_msg = str(e)
+                            msg += f"<div class='inline-note error'>Failed to eject CD/DVD: {html.escape(error_msg)}</div>"
+                            logger.error(f"Error ejecting CD/DVD from VM {name}: {error_msg}", exc_info=True)
                 
-                # Handle CD/DVD detach
+                # Handle CD/DVD detach (remove drive completely)
                 if 'detach_cdrom' in form:
-                    try:
-                        tgt = form.get('cdrom_target', [''])[0]
-                        dom_xml = d.XMLDesc(0)
-                        import xml.etree.ElementTree as ET
-                        root = ET.fromstring(dom_xml)
-                        for disk in root.findall('.//devices/disk'):
-                            t = disk.find('target')
-                            if t is not None and t.get('dev') == tgt:
-                                # Use appropriate flags based on VM state
-                                state, _ = d.state()
-                                if state == libvirt.VIR_DOMAIN_RUNNING:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
-                                else:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                    tgt = form.get('cdrom_target', [''])[0].strip()
+                    if not tgt:
+                        msg += "<div class='inline-note error'>No CD/DVD target specified for removal.</div>"
+                    else:
+                        try:
+                            dom_xml = d.XMLDesc(0)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            disk_found = False
+                            
+                            for disk in root.findall('.//devices/disk'):
+                                if disk.get('device') == 'cdrom':
+                                    t = disk.find('target')
+                                    if t is not None and t.get('dev') == tgt:
+                                        disk_found = True
+                                        # Use appropriate flags based on VM state
+                                        state, _ = d.state()
+                                        if state == libvirt.VIR_DOMAIN_RUNNING:
+                                            flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                        else:
+                                            flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                        
+                                        try:
+                                            disk_xml = ET.tostring(disk, encoding='unicode')
+                                            d.detachDeviceFlags(disk_xml, flags)
+                                            msg += f"<div class='inline-note success'>✅ CD/DVD drive {tgt} removed successfully.</div>"
+                                            logger.info(f"Removed CD/DVD drive {tgt} from VM {name}")
+                                        except libvirt.libvirtError as e:
+                                            error_msg = str(e)
+                                            if 'not found' in error_msg.lower():
+                                                msg += f"<div class='inline-note error'>CD/DVD device {tgt} not found.</div>"
+                                            else:
+                                                msg += f"<div class='inline-note error'>Failed to remove CD/DVD drive: {html.escape(error_msg)}</div>"
+                                                logger.error(f"Failed to remove CD/DVD drive {tgt} from VM {name}: {error_msg}")
+                                        break
+                            
+                            if not disk_found:
+                                msg += f"<div class='inline-note error'>CD/DVD device {tgt} not found.</div>"
                                 
-                                d.detachDeviceFlags(ET.tostring(disk, encoding='unicode'), flags)
-                                msg += f"<div class='inline-note'>CD/DVD drive {tgt} removed successfully.</div>"
-                                break
-                    except Exception as e:
-                        msg += f"<div class='inline-note error'>Failed to remove CD/DVD drive: {html.escape(str(e))}</div>"
+                        except Exception as e:
+                            error_msg = str(e)
+                            msg += f"<div class='inline-note error'>Failed to remove CD/DVD drive: {html.escape(error_msg)}</div>"
+                            logger.error(f"Error removing CD/DVD drive from VM {name}: {error_msg}", exc_info=True)
                 if 'detach_disk' in form: 
                     if d.isActive():
                         msg += "<div class='inline-note error'>Cannot delete disk while VM is running. Stop the VM first.</div>"
@@ -5710,34 +5804,39 @@ class Handler(BaseHTTPRequestHandler):
         cdrom_list = ''.join(cdrom_items) if cdrom_items else '<div class="card"><p style="color: var(--text-secondary); text-align: center; padding: 20px;">No CD/DVD drives attached</p></div>'
         
         # Create CD/DVD attach form with ISO selection
-        iso_options = ""
+        iso_options = "<option value=''>Select an ISO image...</option>"
         try:
-            # First scan all libvirt storage pools for ISO files
+            # List ISO images from all storage pools using the list_iso_images method
             for pool in lv.list_pools():
                 try:
-                    if pool.isActive():
+                    if pool and pool.isActive():
                         pool_name = pool.name()
-                        for vol in pool.listAllVolumes():
-                            vol_name = vol.name()
-                            if vol_name.lower().endswith('.iso'):
-                                vol_path = vol.path()
-                                iso_options += f"<option value='{html.escape(vol_path)}'>[{html.escape(pool_name)}] {html.escape(vol_name)}</option>"
-                except Exception:
-                    continue
+                        try:
+                            iso_images = self.list_iso_images(pool)
+                            for img in sorted(iso_images):
+                                iso_options += f"<option value='{html.escape(pool_name)}::{html.escape(img)}'>{html.escape(pool_name)}/{html.escape(img)}</option>"
+                        except Exception as e:
+                            logger.error(f"Error listing ISO images in pool {pool_name}: {e}")
+                except Exception as e:
+                    logger.error(f"Error accessing pool {pool.name() if pool else 'unknown'}: {e}")
             
-            # Also look for ISO files in common directories as fallback
+            # Fallback: Also look for ISO files in common directories
             iso_dirs = ['/nvme/images', '/home', '/tmp']
             for iso_dir in iso_dirs:
-                if os.path.exists(iso_dir):
-                    for root, dirs, files in os.walk(iso_dir):
-                        for f in files:
-                            if f.lower().endswith('.iso'):
-                                full_path = os.path.join(root, f)
-                                # Only add if not already found in pools
-                                if f"value='{html.escape(full_path)}'" not in iso_options:
-                                    iso_options += f"<option value='{html.escape(full_path)}'>[System] {html.escape(f)} ({html.escape(root)})</option>"
-        except Exception:
-            pass
+                try:
+                    if os.path.exists(iso_dir):
+                        for root, dirs, files in os.walk(iso_dir):
+                            for f in sorted(files):
+                                if f.lower().endswith('.iso'):
+                                    full_path = os.path.join(root, f)
+                                    # Only add if not already found in pools
+                                    if f"value='{html.escape(full_path)}'" not in iso_options:
+                                        iso_options += f"<option value='{html.escape(full_path)}'>[System] {html.escape(f)} ({html.escape(root)})</option>"
+                except Exception as e:
+                    logger.error(f"Error scanning {iso_dir} for ISO files: {e}")
+        except Exception as e:
+            logger.error(f"Error in ISO selection: {e}")
+            iso_options += f"<option value='' disabled>Error loading ISO images: {html.escape(str(e))}</option>"
         
         # NICs
         nic_items=[]
