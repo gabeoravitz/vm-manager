@@ -3250,190 +3250,26 @@ class Handler(BaseHTTPRequestHandler):
         """
 
     def page_networks(self, lv: LV, form: Optional[dict] = None):
-        """Network management page with Network Manager bridge support"""
-        msg = ""
+        """Network management page redirecting to Cockpit"""
+        # Get the host IP address
+        import socket
+        hostname = socket.gethostname()
         
-        if form:
-            try:
-                if 'create_bridge' in form:
-                    bridge_name = form.get('bridge_name', [''])[0].strip()
-                    bridge_ip = form.get('bridge_ip', [''])[0].strip()
-                    interface = form.get('interface', [''])[0].strip()
-                    
-                    if not bridge_name or not bridge_ip:
-                        raise RuntimeError('Bridge name and IP are required')
-                    
-                    # Create NetworkManager bridge
-                    try:
-                        # Create bridge connection
-                        subprocess.check_call([
-                            'sudo', 'nmcli', 'connection', 'add', 'type', 'bridge', 
-                            'con-name', bridge_name, 'ifname', bridge_name
-                        ])
-                        
-                        # Set IP address
-                        subprocess.check_call([
-                            'sudo', 'nmcli', 'connection', 'modify', bridge_name,
-                            'ipv4.addresses', bridge_ip,
-                            'ipv4.method', 'manual'
-                        ])
-                        
-                        # Add interface to bridge if specified
-                        if interface:
-                            subprocess.check_call([
-                                'sudo', 'nmcli', 'connection', 'add', 'type', 'bridge-slave',
-                                'con-name', f'{bridge_name}-slave', 'ifname', interface,
-                                'master', bridge_name
-                            ])
-                        
-                        # Bring up the bridge
-                        subprocess.check_call(['sudo', 'nmcli', 'connection', 'up', bridge_name])
-                        
-                        msg = f"<div class='inline-note success'>✅ NetworkManager bridge '{bridge_name}' created with IP {bridge_ip}</div>"
-                        
-                    except subprocess.CalledProcessError as e:
-                        raise RuntimeError(f'Failed to create NetworkManager bridge: {e}')
-                
-                elif 'delete_bridge' in form:
-                    bridge_name = form.get('bridge_name', [''])[0].strip()
-                    if bridge_name:
-                        try:
-                            # Delete bridge slave connections first
-                            try:
-                                subprocess.check_call([
-                                    'sudo', 'nmcli', 'connection', 'delete', f'{bridge_name}-slave'
-                                ], stderr=subprocess.DEVNULL)
-                            except subprocess.CalledProcessError:
-                                pass  # Slave might not exist
-                            
-                            # Delete bridge connection
-                            subprocess.check_call([
-                                'sudo', 'nmcli', 'connection', 'delete', bridge_name
-                            ])
-                            
-                            msg = f"<div class='inline-note success'>✅ NetworkManager bridge '{bridge_name}' deleted</div>"
-                        except subprocess.CalledProcessError as e:
-                            raise RuntimeError(f'Failed to delete bridge: {e}')
-                        
-            except Exception as e:
-                msg = f"<div class='inline-note error'>{html.escape(str(e))}</div>"
-        
-        # Get NetworkManager bridges
-        bridge_rows = []
-        try:
-            # List NetworkManager connections
-            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE,DEVICE,STATE', 'connection', 'show'], 
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line and 'bridge' in line:
-                        parts = line.split(':')
-                        if len(parts) >= 4:
-                            name, conn_type, device, state = parts[:4]
-                            if conn_type == 'bridge':
-                                # Get IP address
-                                ip_result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'IP4.ADDRESS', 'connection', 'show', name],
-                                                         capture_output=True, text=True, timeout=3)
-                                ip_addr = ip_result.stdout.strip().replace('IP4.ADDRESS:', '') if ip_result.returncode == 0 else 'N/A'
-                                
-                                bridge_rows.append(f"""
-                                <tr>
-                                    <td>{html.escape(name)}</td>
-                                    <td><span class="badge {'running' if state == 'activated' else 'shutoff'}">{html.escape(state)}</span></td>
-                                    <td>{html.escape(device or 'N/A')}</td>
-                                    <td>{html.escape(ip_addr)}</td>
-                                    <td>
-                                        <form method='post' class='inline'>
-                                            <input type='hidden' name='delete_bridge' value='1'>
-                                            <input type='hidden' name='bridge_name' value='{html.escape(name)}'>
-                                            <button class='small danger' onclick="return confirm('Delete bridge?')">Delete</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                                """)
-        except Exception as e:
-            bridge_rows.append(f"<tr><td colspan='5'><em>Error listing bridges: {html.escape(str(e))}</em></td></tr>")
-        
-        bridge_table = f"""
-        <table>
-            <thead><tr><th>Name</th><th>Status</th><th>Device</th><th>IP Address</th><th>Actions</th></tr></thead>
-            <tbody>
-                {''.join(bridge_rows) if bridge_rows else '<tr><td colspan="5"><em>No NetworkManager bridges found</em></td></tr>'}
-            </tbody>
-        </table>
-        """
-        
-        # Get available network interfaces
-        interface_options = ""
-        try:
-            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'DEVICE,TYPE,STATE', 'device'], 
-                                  capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    if line:
-                        parts = line.split(':')
-                        if len(parts) >= 3:
-                            device, dev_type, state = parts[:3]
-                            # Include ethernet interfaces that are available (connected, disconnected, or unmanaged)
-                            if dev_type == 'ethernet' and state in ['disconnected', 'unmanaged', 'connected']:
-                                interface_options += f"<option value='{html.escape(device)}'>{html.escape(device)} ({html.escape(state)})</option>"
-        except Exception:
-            pass
-        
-        # Bridge creation modal
-        bridge_modal = f"""
-        <div class='modal' id='modal_create_bridge' hidden>
-            <div class='panel'>
-                <div style='display:flex;justify-content:space-between;align-items:center'>
-                    <h3>🌉 Create NetworkManager Bridge</h3>
-                    <button class='close secondary' onclick="closeModal('modal_create_bridge')">×</button>
-                </div>
-                <form method='post'>
-                    <input type='hidden' name='create_bridge' value='1'>
-                    
-                    <label>Bridge Name <input name='bridge_name' required placeholder='br0'></label>
-                    <label>IP Address/CIDR <input name='bridge_ip' required placeholder='192.168.1.100/24'></label>
-                    <label>Physical Interface (optional) 
-                        <select name='interface'>
-                            <option value=''>None</option>
-                            {interface_options}
-                        </select>
-                    </label>
-                    
-                    <div style='margin-top:16px'>
-                        <input type='submit' class='button' value='Create Bridge'>
-                        <button type='button' class='button secondary' onclick="closeModal('modal_create_bridge')">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        """
-
         return f"""
         <div class="card">
-            <h3>🌉 NetworkManager Bridge Management</h3>
-            {msg}
-            <p>Create and manage NetworkManager bridges for VM connectivity with direct network access.</p>
-            <button class="button" onclick="openModal('modal_create_bridge')">🌉 Create Bridge</button>
+            <h3>🌐 Network Configuration</h3>
+            <p>Network configuration is managed through Cockpit's web interface.</p>
+            <p>Click the link below to access the network configuration:</p>
+            <p style="margin: 20px 0;">
+                <a href="https://{hostname}:9090/network" target="_blank" class="button" style="font-size: 16px; padding: 12px 24px;">
+                    🌐 Open Cockpit Networks Configuration
+                </a>
+            </p>
+            <p class="inline-note">
+                <strong>Note:</strong> This will open Cockpit's network configuration in a new tab. 
+                You may need to accept the SSL certificate if this is your first time accessing Cockpit.
+            </p>
         </div>
-        
-        <div class="card">
-            <h4>🌉 Existing Bridges</h4>
-            <p class="inline-note">NetworkManager bridges provide direct network access for VMs.</p>
-            {bridge_table}
-        </div>
-        
-        {bridge_modal}
-        
-        <script>
-        function controlNetwork(name, action) {{
-            fetch('/api/network/' + name, {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/x-www-form-urlencoded'}},
-                body: 'action=' + action
-            }}).then(() => location.reload());
-        }}
-        </script>
         """
     # Screenshot -> inline console
     def screenshot(self, lv:LV, d):
