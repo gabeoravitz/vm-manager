@@ -7206,8 +7206,39 @@ class Handler(BaseHTTPRequestHandler):
             </script>
             """
         
+        # Add simple auto-refresh script for progress updates
+        auto_refresh_script = ""
+        if prog_blocks:  # Only add if there are active progress blocks
+            auto_refresh_script = f"""
+            <script>
+            // Simple auto-refresh for progress updates
+            if (!window.imageProgressInterval) {{
+                window.imageProgressInterval = setInterval(() => {{
+                    // Check if there are still progress blocks visible
+                    const progressCards = document.querySelectorAll('.card');
+                    let hasActiveProgress = false;
+                    progressCards.forEach(card => {{
+                        const progressBar = card.querySelector('div[style*="height:8px"]');
+                        if (progressBar) {{
+                            hasActiveProgress = true;
+                        }}
+                    }});
+                    
+                    if (hasActiveProgress) {{
+                        // Simple page reload to update progress
+                        window.location.reload();
+                    }} else {{
+                        // No more active progress, clear interval
+                        clearInterval(window.imageProgressInterval);
+                        window.imageProgressInterval = null;
+                    }}
+                }}, 3000); // Refresh every 3 seconds
+            }}
+            </script>
+            """
+        
         return (
-            f"<div class='card'><h3>Images</h3>{msg}{btn}{prog_blocks}{''.join(rows)}{modal}{inline_fallback}</div>{progress_script}"
+            f"<div class='card'><h3>Images</h3>{msg}{btn}{prog_blocks}{''.join(rows)}{modal}{inline_fallback}</div>{progress_script}{auto_refresh_script}"
         )
 
     def page_storage(self, lv:LV, form):
