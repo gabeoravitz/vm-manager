@@ -7104,9 +7104,22 @@ class Handler(BaseHTTPRequestHandler):
             # Skip RAID-related progress on images page
             if 'raid' in msgp.lower() or 'mdadm' in msgp.lower() or 'btrfs' in msgp.lower():
                 continue
-            # Create visual progress bar
-            progress_bar = f"<div style='width:200px;height:16px;background:#ddd;border:1px solid #999;display:inline-block;vertical-align:middle;margin:0 6px'><div style='width:{pct}%;height:100%;background:{('#4CAF50' if st=='done' else '#ff6b6b' if st=='error' else '#2196F3')};transition:width 0.3s'></div></div>"
-            prog_blocks+=f"<div class='inline-note' style='margin:4px 0;padding:8px;border:1px solid #ddd;border-radius:4px'>[{pid}] {st} {progress_bar} {pct:.1f}% {msgp}</div>"
+            # Create visual progress bar with improved styling
+            progress_bar = f"""
+            <div style='width:100%;max-width:400px;height:8px;background:var(--card-secondary);border:1px solid var(--border);border-radius:4px;overflow:hidden;margin:8px 0'>
+                <div style='width:{pct}%;height:100%;background:{('#4CAF50' if st=='done' else '#ff6b6b' if st=='error' else 'var(--primary)')};transition:width 0.3s ease'></div>
+            </div>
+            """
+            prog_blocks+=f"""
+            <div class='card' style='margin:8px 0;padding:16px;font-family:inherit'>
+                <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>
+                    <span style='font-weight:500;color:var(--fg)'>{html.escape(msgp)}</span>
+                    <span style='font-size:14px;color:var(--text-secondary)'>{pct:.1f}%</span>
+                </div>
+                {progress_bar}
+                <div style='font-size:12px;color:var(--text-secondary);margin-top:4px'>Status: {html.escape(st)}</div>
+            </div>
+            """
         # Check if we need to show progress polling
         progress_script = ""
         if qs and 'progress' in qs:
@@ -7134,6 +7147,11 @@ class Handler(BaseHTTPRequestHandler):
                                 window.location.href = '/?images=1';
                             }}, 2000);
                             window.imagePollRunning = false;
+                        }} else if (data.status && data.pct !== undefined) {{
+                            // Update progress display in real-time
+                            updateProgressDisplay(data);
+                            pollCount++;
+                            setTimeout(pollProgress, 1000);
                         }} else {{
                             // Continue polling
                             pollCount++;
@@ -7149,6 +7167,38 @@ class Handler(BaseHTTPRequestHandler):
                             window.imagePollRunning = false;
                         }}
                     }});
+            }}
+            
+            function updateProgressDisplay(data) {{
+                // Find progress elements and update them
+                const progressCards = document.querySelectorAll('.card');
+                progressCards.forEach(card => {{
+                    const progressBar = card.querySelector('div[style*="width:"][style*="height:8px"]');
+                    if (progressBar) {{
+                        const innerBar = progressBar.querySelector('div');
+                        if (innerBar) {{
+                            innerBar.style.width = data.pct + '%';
+                        }}
+                        
+                        // Update percentage text
+                        const percentSpan = card.querySelector('span[style*="font-size:14px"]');
+                        if (percentSpan) {{
+                            percentSpan.textContent = data.pct.toFixed(1) + '%';
+                        }}
+                        
+                        // Update message
+                        const messageSpan = card.querySelector('span[style*="font-weight:500"]');
+                        if (messageSpan) {{
+                            messageSpan.textContent = data.msg || 'Processing...';
+                        }}
+                        
+                        // Update status
+                        const statusDiv = card.querySelector('div[style*="font-size:12px"]');
+                        if (statusDiv) {{
+                            statusDiv.textContent = 'Status: ' + (data.status || 'running');
+                        }}
+                    }}
+                }});
             }}
             
             // Start polling after page load
