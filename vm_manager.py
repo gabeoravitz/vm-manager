@@ -7122,7 +7122,6 @@ class Handler(BaseHTTPRequestHandler):
             prog_blocks+=f"<div class='inline-note' style='margin:4px 0;padding:8px;border:1px solid #ddd;border-radius:4px'>[{pid}] {st} {progress_bar} {pct:.1f}% {msgp}</div>"
         # Check if we need to show progress polling
         progress_script = ""
-        qs = self.qs
         if qs and 'progress' in qs:
             progress_pid = qs['progress'][0]
             progress_script = f"""
