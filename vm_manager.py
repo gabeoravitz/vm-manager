@@ -2801,7 +2801,7 @@ class Handler(BaseHTTPRequestHandler):
             if 'create' in qs:
                 dash=self.page_dashboard(lv)+"<script>document.addEventListener('DOMContentLoaded',()=>openModal('modal_vm'));</script>"
                 self._send(self.wrap('Dashboard', dash)); return
-            if 'images' in qs: self._send(self.wrap('Images', self.page_images(lv, form))); return
+            if 'images' in qs: self._send(self.wrap('Images', self.page_images(lv, form, qs))); return
             if 'hardware' in qs: self._send(self.wrap('Hardware', self.page_hardware(lv))); return
             if 'storage' in qs: self._send(self.wrap('Storage', self.page_storage(lv, form))); return
             if 'networks' in qs: self._send(self.wrap('Networks', self.page_networks(lv, form))); return
@@ -3263,6 +3263,43 @@ class Handler(BaseHTTPRequestHandler):
             # Fallback to localhost if unable to determine IP
             host_ip = "127.0.0.1"
         
+        # Get NetworkManager bridges (read-only)
+        bridge_rows = []
+        try:
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE,DEVICE,STATE', 'connection', 'show'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    if line and 'bridge' in line:
+                        parts = line.split(':')
+                        if len(parts) >= 4:
+                            name, conn_type, device, state = parts[:4]
+                            if conn_type == 'bridge':
+                                # Get IP address
+                                ip_result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'IP4.ADDRESS', 'connection', 'show', name],
+                                                         capture_output=True, text=True, timeout=3)
+                                ip_addr = ip_result.stdout.strip().replace('IP4.ADDRESS:', '') if ip_result.returncode == 0 else 'N/A'
+                                
+                                bridge_rows.append(f"""
+                                <tr>
+                                    <td>{html.escape(name)}</td>
+                                    <td><span class="badge {'running' if state == 'activated' else 'shutoff'}">{html.escape(state)}</span></td>
+                                    <td>{html.escape(device or 'N/A')}</td>
+                                    <td>{html.escape(ip_addr)}</td>
+                                </tr>
+                                """)
+        except Exception as e:
+            bridge_rows.append(f"<tr><td colspan='4'><em>Error listing bridges: {html.escape(str(e))}</em></td></tr>")
+        
+        bridge_table = f"""
+        <table>
+            <thead><tr><th>Name</th><th>Status</th><th>Device</th><th>IP Address</th></tr></thead>
+            <tbody>
+                {''.join(bridge_rows) if bridge_rows else '<tr><td colspan="4"><em>No NetworkManager bridges found</em></td></tr>'}
+            </tbody>
+        </table>
+        """
+        
         return f"""
         <div class="card">
             <h3>🌐 Network Configuration</h3>
@@ -3277,6 +3314,12 @@ class Handler(BaseHTTPRequestHandler):
                 <strong>Note:</strong> This will open Cockpit's network configuration in a new tab. 
                 You may need to accept the SSL certificate if this is your first time accessing Cockpit.
             </p>
+        </div>
+        
+        <div class="card">
+            <h4>🌉 Current NetworkManager Bridges</h4>
+            <p class="inline-note">View existing bridges below. Use Cockpit for configuration changes.</p>
+            {bridge_table}
         </div>
         """
     # Screenshot -> inline console
@@ -6836,9 +6879,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         return self.wrap('Image Import Progress', body)
 
-    def page_images(self, lv:LV, form):
+    def page_images(self, lv:LV, form, qs=None):
         # Handle AJAX progress check
-        qs = self.qs
         if qs and 'ajax' in qs and 'progress_check' in qs:
             pid = qs['progress_check'][0]
             if pid in PROGRESS:
