@@ -1189,11 +1189,11 @@ def start_image_ingest(pid:str,pool_name:str,src:str,out:str):
                 PROGRESS[pid]['msg'] = 'Cleaning up NFS mount...'
                 # Simple unmount after successful conversion
                 try:
-                    subprocess.check_call(['umount', nfs_mount_point], timeout=10, stderr=subprocess.DEVNULL)
+                    subprocess.check_call(['sudo', 'umount', nfs_mount_point], timeout=10, stderr=subprocess.DEVNULL)
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
                     # If normal unmount fails, try lazy unmount
                     try:
-                        subprocess.check_call(['umount', '-l', nfs_mount_point], timeout=5, stderr=subprocess.DEVNULL)
+                        subprocess.check_call(['sudo', 'umount', '-l', nfs_mount_point], timeout=5, stderr=subprocess.DEVNULL)
                     except Exception:
                         pass  # Continue even if unmount fails
             
@@ -1216,11 +1216,11 @@ def start_image_ingest(pid:str,pool_name:str,src:str,out:str):
             # Cleanup NFS mount if conversion failed
             if nfs_mount_point and os.path.exists(nfs_mount_point):
                 try:
-                    subprocess.check_call(['umount', nfs_mount_point], timeout=10, stderr=subprocess.DEVNULL)
+                    subprocess.check_call(['sudo', 'umount', nfs_mount_point], timeout=10, stderr=subprocess.DEVNULL)
                 except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
                     # If normal unmount fails, try lazy unmount
                     try:
-                        subprocess.check_call(['umount', '-l', nfs_mount_point], timeout=5, stderr=subprocess.DEVNULL)
+                        subprocess.check_call(['sudo', 'umount', '-l', nfs_mount_point], timeout=5, stderr=subprocess.DEVNULL)
                     except Exception:
                         pass  # Continue even if unmount fails
         finally:
@@ -5749,20 +5749,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     logger.error(f"Error accessing pool {pool.name() if pool else 'unknown'}: {e}")
             
-            # Fallback: Also look for ISO files in common directories
-            iso_dirs = ['/nvme/images', '/home', '/tmp']
-            for iso_dir in iso_dirs:
-                try:
-                    if os.path.exists(iso_dir):
-                        for root, dirs, files in os.walk(iso_dir):
-                            for f in sorted(files):
-                                if f.lower().endswith('.iso'):
-                                    full_path = os.path.join(root, f)
-                                    # Only add if not already found in pools
-                                    if f"value='{html.escape(full_path)}'" not in iso_options:
-                                        iso_options += f"<option value='{html.escape(full_path)}'>[System] {html.escape(f)} ({html.escape(root)})</option>"
-                except Exception as e:
-                    logger.error(f"Error scanning {iso_dir} for ISO files: {e}")
+            # Skip system directory scanning to avoid showing [System] entries
         except Exception as e:
             logger.error(f"Error in ISO selection: {e}")
             iso_options += f"<option value='' disabled>Error loading ISO images: {html.escape(str(e))}</option>"
