@@ -1302,6 +1302,28 @@ def create_session():
 class Handler(BaseHTTPRequestHandler):
     server_version='Enhanced-VMManager/2.0'
     
+    def list_iso_images(self, pool):
+        """List all ISO images in the given storage pool."""
+        try:
+            import xml.etree.ElementTree as ET
+            pool_xml = pool.XMLDesc()
+            pool_root = ET.fromstring(pool_xml)
+            pool_path = pool_root.findtext('.//target/path')
+            if not pool_path:
+                return []
+                
+            images_dir = os.path.join(pool_path, 'images')
+            if not os.path.isdir(images_dir):
+                return []
+                
+            # List all .iso files in the images directory
+            return [f for f in os.listdir(images_dir) 
+                   if f.lower().endswith('.iso') and os.path.isfile(os.path.join(images_dir, f))]
+                    
+        except Exception as e:
+            logger.error(f"Error listing ISO images in pool {pool.name()}: {e}")
+            return []
+    
     def finish(self):
         """Override finish to handle detached WebSocket connections"""
         try:
