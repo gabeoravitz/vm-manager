@@ -3253,7 +3253,15 @@ class Handler(BaseHTTPRequestHandler):
         """Network management page redirecting to Cockpit"""
         # Get the host IP address
         import socket
-        hostname = socket.gethostname()
+        try:
+            # Connect to a remote address to determine the local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            # Fallback to localhost if unable to determine IP
+            host_ip = "127.0.0.1"
         
         return f"""
         <div class="card">
@@ -3261,7 +3269,7 @@ class Handler(BaseHTTPRequestHandler):
             <p>Network configuration is managed through Cockpit's web interface.</p>
             <p>Click the link below to access the network configuration:</p>
             <p style="margin: 20px 0;">
-                <a href="https://{hostname}:9090/network" target="_blank" class="button" style="font-size: 16px; padding: 12px 24px;">
+                <a href="https://{host_ip}:9090/network" target="_blank" class="button" style="font-size: 16px; padding: 12px 24px;">
                     🌐 Open Cockpit Networks Configuration
                 </a>
             </p>
