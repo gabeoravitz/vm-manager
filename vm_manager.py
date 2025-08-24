@@ -6260,7 +6260,6 @@ class Handler(BaseHTTPRequestHandler):
                                 <div class='form-group'>
                                     <label style='display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; color: var(--fg);'>ISO Image</label>
                                     <select name='cdrom_iso' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg); font-size: 13px;' required>
-                                        <option value=''>Select an ISO file...</option>
                                         {iso_options}
                                     </select>
                                 </div>
@@ -6952,6 +6951,26 @@ class Handler(BaseHTTPRequestHandler):
         return self.wrap('Image Import Progress', body)
 
     def page_images(self, lv:LV, form):
+        # Handle AJAX progress check
+        qs = self.qs
+        if qs and 'ajax' in qs and 'progress_check' in qs:
+            pid = qs['progress_check'][0]
+            if pid in PROGRESS:
+                data = PROGRESS[pid]
+                import json
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode())
+                return
+            else:
+                import json
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'not_found'}).encode())
+                return
+        
         msg = ""
         if form and 'delete_image' in form:
             try:
@@ -7001,7 +7020,9 @@ class Handler(BaseHTTPRequestHandler):
                         
                 pid = str(time.time())
                 start_image_ingest(pid, pool_name, src, out)
-                msg += f"<div class='inline-note'>Started image ingest: {pid}</div>"
+                # Redirect to progress page with auto-refresh
+                self._send_redirect(f"/?images=1&progress={pid}")
+                return
             except Exception as e:
                 msg += f"<div class='inline-note'>{html.escape(str(e))}</div>"
         rows = []
@@ -7171,8 +7192,58 @@ class Handler(BaseHTTPRequestHandler):
             # Create visual progress bar
             progress_bar = f"<div style='width:200px;height:16px;background:#ddd;border:1px solid #999;display:inline-block;vertical-align:middle;margin:0 6px'><div style='width:{pct}%;height:100%;background:{('#4CAF50' if st=='done' else '#ff6b6b' if st=='error' else '#2196F3')};transition:width 0.3s'></div></div>"
             prog_blocks+=f"<div class='inline-note' style='margin:4px 0;padding:8px;border:1px solid #ddd;border-radius:4px'>[{pid}] {st} {progress_bar} {pct:.1f}% {msgp}</div>"
+        # Check if we need to show progress polling
+        progress_script = ""
+        qs = self.qs
+        if qs and 'progress' in qs:
+            progress_pid = qs['progress'][0]
+            progress_script = f"""
+            <script>
+            window.imagePollRunning = true;
+            let progressPid = '{progress_pid}';
+            let pollCount = 0;
+            const maxPolls = 300; // 5 minutes max
+            
+            function pollProgress() {{
+                if (pollCount >= maxPolls) {{
+                    console.log('Progress polling timed out');
+                    window.imagePollRunning = false;
+                    return;
+                }}
+                
+                fetch('/?images=1&ajax=1&progress_check=' + progressPid)
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'done' || data.status === 'error') {{
+                            // Progress complete, refresh page to show final state
+                            setTimeout(() => {{
+                                window.location.href = '/?images=1';
+                            }}, 2000);
+                            window.imagePollRunning = false;
+                        }} else {{
+                            // Continue polling
+                            pollCount++;
+                            setTimeout(pollProgress, 1000);
+                        }}
+                    }})
+                    .catch(error => {{
+                        console.error('Progress polling error:', error);
+                        pollCount++;
+                        if (pollCount < maxPolls) {{
+                            setTimeout(pollProgress, 2000); // Retry with longer delay
+                        }} else {{
+                            window.imagePollRunning = false;
+                        }}
+                    }});
+            }}
+            
+            // Start polling after page load
+            setTimeout(pollProgress, 1000);
+            </script>
+            """
+        
         return (
-            f"<div class='card'><h3>Images</h3>{msg}{btn}{prog_blocks}{''.join(rows)}{modal}{inline_fallback}</div>"
+            f"<div class='card'><h3>Images</h3>{msg}{btn}{prog_blocks}{''.join(rows)}{modal}{inline_fallback}</div>{progress_script}"
         )
 
     def page_storage(self, lv:LV, form):
