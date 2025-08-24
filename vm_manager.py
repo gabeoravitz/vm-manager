@@ -2769,7 +2769,27 @@ class Handler(BaseHTTPRequestHandler):
                         disks.append((disk_path,bus,tgt))
                     if not disks:
                         raise RuntimeError('At least one disk required')
-                    loader_xml = "" if firmware!='uefi' else f"<loader readonly='yes' type='pflash'>/usr/share/edk2/x64/OVMF_CODE.4m.fd</loader><nvram>/var/lib/libvirt/qemu/nvram/{name}_VARS.fd</nvram>"
+                    # Auto-detect OVMF firmware paths for cross-distro compatibility
+                    ovmf_code_path = None
+                    if firmware == 'uefi':
+                        # Common OVMF paths across different distributions
+                        ovmf_paths = [
+                            '/usr/share/edk2/x64/OVMF_CODE.4m.fd',  # Arch Linux
+                            '/usr/share/OVMF/OVMF_CODE.fd',         # RHEL/CentOS/Fedora
+                            '/usr/share/ovmf/OVMF.fd',              # Ubuntu/Debian
+                            '/usr/share/qemu/ovmf-x86_64-code.bin', # openSUSE
+                            '/usr/share/edk2-ovmf/x64/OVMF_CODE.fd' # Some other distros
+                        ]
+                        
+                        for path in ovmf_paths:
+                            if os.path.exists(path):
+                                ovmf_code_path = path
+                                break
+                        
+                        if not ovmf_code_path:
+                            raise RuntimeError('UEFI firmware not found. Please install OVMF/EDK2 package for your distribution.')
+                    
+                    loader_xml = "" if firmware!='uefi' else f"<loader readonly='yes' type='pflash'>{ovmf_code_path}</loader><nvram>/var/lib/libvirt/qemu/nvram/{name}_VARS.fd</nvram>"
                     
                     # Generate boot order XML
                     boot_devices = boot_order.split(',')
