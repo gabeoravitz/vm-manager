@@ -4124,20 +4124,45 @@ class Handler(BaseHTTPRequestHandler):
                     if disk_file:
                         # vm_dir is parent directory of disk files (one level above disk file)
                         vm_dir=os.path.dirname(disk_file)
+                    # Force shutdown if running before undefine
+                    try:
+                        state, _ = d.state()
+                        if state == libvirt.VIR_DOMAIN_RUNNING:
+                            d.destroy()  # Force stop
+                    except Exception:
+                        pass
+                    
                     # Undefine with comprehensive NVRAM cleanup flags
                     flags=0
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_NVRAM'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_NVRAM
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_MANAGED_SAVE'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA
+                    if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_KEEP_NVRAM'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM
+                    
+                    # Try multiple approaches for NVRAM cleanup
+                    undefine_success = False
+                    
+                    # First try: undefine with NVRAM flag
                     try:
                         d.undefineFlags(flags)
-                    except Exception as e:
-                        # If flags fail, try basic undefine
+                        undefine_success = True
+                    except Exception as e1:
+                        # Second try: undefine without NVRAM flag, then manually remove NVRAM
                         try:
-                            d.undefine()
+                            flags_no_nvram = flags & ~getattr(libvirt, 'VIR_DOMAIN_UNDEFINE_NVRAM', 0)
+                            d.undefineFlags(flags_no_nvram)
+                            undefine_success = True
                         except Exception as e2:
-                            raise RuntimeError(f'Failed to undefine domain: {e2}')
+                            # Third try: basic undefine
+                            try:
+                                d.undefine()
+                                undefine_success = True
+                            except Exception as e3:
+                                raise RuntimeError(f'Failed to undefine domain: {e3}')
+                    
+                    if not undefine_success:
+                        raise RuntimeError('Failed to undefine domain with all methods')
                     # Remove nvram file explicitly if still exists
                     if nvram_path and os.path.isfile(nvram_path):
                         try: os.remove(nvram_path)
