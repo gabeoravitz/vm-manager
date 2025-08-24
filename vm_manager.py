@@ -6592,12 +6592,212 @@ class Handler(BaseHTTPRequestHandler):
             f"{disk_help}<div id='disk_specs'></div>{add_disk_btn}"
             "<div style='margin-top:8px'><input type='submit' class='button' value='Create'> <button type='button' class='button secondary' onclick=\"closeModal('modal_vm')\">Cancel</button></div></form></div></div>"+script_add_disk)
 
-    def progress_page(self,pid:str):
-        body = (f"<div class='card'><h3>Creating Disk Image</h3><p>Operation ID: {pid}</p>"
-                f"<div id='pb_wrap' style='background:#222;border:1px solid #333;border-radius:4px;width:100%;height:22px;overflow:hidden;margin:14px 0'>"
-                f"<div id='pb' style='background:var(--accent);height:100%;width:0%'></div></div>"
-                f"<p id='pbtxt' class='inline-note'>Starting...</p>"
-                f"<script>window.imagePollRunning=true;function poll(){{fetch('/api/progress?id={pid}').then(r=>r.json()).then(d=>{{if(d.error){{pbtxt.textContent='Error: '+d.error;return;}}pb.style.width=d.pct+'%';pbtxt.textContent=d.pct+'% - '+d.msg;if(d.status==='done'){{pbtxt.textContent='Complete!';setTimeout(()=>{{window.location='/?images=1';}},1500);return;}}else if(d.status==='error'){{pbtxt.textContent='Error: '+d.msg;return;}} else {{setTimeout(poll,1000);}}}}).catch(e=>{{console.error('Poll error:',e);setTimeout(poll,1500);}});}}poll();</script></div>")
+    def progress_page(self, pid: str):
+        body = f"""
+        <div class='card' style='max-width: 800px; margin: 2rem auto;'>
+            <h3 style='margin-top: 0;'>
+                <span class='icon'>📊</span> Disk Image Creation in Progress
+            </h3>
+            <div style='margin: 1.5rem 0;'>
+                <div style='display: flex; justify-content: space-between; margin-bottom: 0.5rem;'>
+                    <span id='pct' style='font-weight: bold; color: var(--accent);'>0%</span>
+                    <span id='status' style='color: var(--muted);'>Initializing...</span>
+                </div>
+                <div id='pb_wrap' style='
+                    background: var(--card);
+                    border: 1px solid var(--border);
+                    border-radius: 10px;
+                    width: 100%;
+                    height: 20px;
+                    overflow: hidden;
+                    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+                '>
+                    <div id='pb' style='
+                        background: linear-gradient(90deg, var(--accent), #3b82f6);
+                        height: 100%;
+                        width: 0%;
+                        transition: width 0.5s ease-out, background-color 0.3s;
+                        position: relative;
+                        overflow: hidden;
+                    '>
+                        <div style='
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: linear-gradient(
+                                90deg,
+                                rgba(255,255,255,0.1) 0%,
+                                rgba(255,255,255,0.3) 50%,
+                                rgba(255,255,255,0.1) 100%
+                            );
+                            animation: progressShine 2s infinite linear;
+                            transform: translateX(-100%) rotate(45deg);
+                        '></div>
+                    </div>
+                </div>
+                <div id='details' style='
+                    margin-top: 1rem;
+                    padding: 0.75rem;
+                    background: var(--card);
+                    border: 1px solid var(--border);
+                    border-radius: 6px;
+                    font-size: 0.9em;
+                    line-height: 1.5;
+                '>
+                    <div><strong>Operation ID:</strong> {pid}</div>
+                    <div id='pbtxt' style='margin-top: 0.5rem;'>Starting image import process...</div>
+                    <div id='speed' style='margin-top: 0.5rem; color: var(--muted); font-size: 0.9em;'></div>
+                </div>
+            </div>
+            <div style='text-align: center; margin-top: 1.5rem;'>
+                <button id='cancelBtn' class='button secondary' onclick='window.location="/?images=1"'>
+                    Back to Images
+                </button>
+            </div>
+        </div>
+
+        <style>
+            @keyframes progressShine {{
+                0% {{ transform: translateX(-100%) rotate(45deg); }}
+                100% {{ transform: translateX(100%) rotate(45deg); }}
+            }}
+            
+            .icon {{
+                margin-right: 0.5rem;
+                vertical-align: middle;
+            }}
+            
+            #pb_wrap:hover #pb {{
+                background: linear-gradient(90deg, var(--accent), #2563eb);
+            }}
+        </style>
+
+        <script>
+            let lastUpdate = Date.now();
+            let lastLoaded = 0;
+            let lastSpeedUpdate = 0;
+            let speedKbps = 0;
+            let speedSamples = [];
+            const MAX_SPEED_SAMPLES = 5;
+            
+            function updateProgress() {{
+                const now = Date.now();
+                const timeSinceLastUpdate = now - lastUpdate;
+                
+                // Only update if it's been at least 500ms since last update
+                if (timeSinceLastUpdate < 500) {{
+                    setTimeout(updateProgress, 100);
+                    return;
+                }}
+                
+                fetch(`/api/progress?id={pid}`)
+                    .then(r => r.json())
+                    .then(d => {{
+                        lastUpdate = now;
+                        
+                        if (d.error) {{
+                            updateError(d.error);
+                            return;
+                        }}
+                        
+                        // Update progress bar
+                        const pb = document.getElementById('pb');
+                        const pct = parseFloat(d.pct) || 0;
+                        pb.style.width = pct + '%';
+                        document.getElementById('pct').textContent = Math.round(pct) + '%';
+                        
+                        // Update status text
+                        const statusEl = document.getElementById('status');
+                        statusEl.textContent = d.status === 'done' ? 'Complete!' : 
+                                            d.status === 'error' ? 'Error' : 
+                                            d.status || 'In progress';
+                        
+                        // Update details
+                        const pbtxt = document.getElementById('pbtxt');
+                        pbtxt.textContent = d.msg || 'Processing...';
+                        
+                        // Calculate and display speed
+                        if (d.loaded && d.loaded > 0) {{
+                            const currentTime = Date.now();
+                            const timeDiff = (currentTime - lastSpeedUpdate) / 1000; // in seconds
+                            
+                            if (timeDiff >= 1 && lastLoaded > 0) {{
+                                const loadedDiff = d.loaded - lastLoaded;
+                                const currentSpeed = loadedDiff / timeDiff; // bytes per second
+                                
+                                // Add to rolling average
+                                speedSamples.push(currentSpeed);
+                                if (speedSamples.length > MAX_SPEED_SAMPLES) {{
+                                    speedSamples.shift();
+                                }}
+                                
+                                // Calculate average speed
+                                const avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
+                                
+                                // Format speed
+                                let speedText;
+                                if (avgSpeed > 1024 * 1024) {{
+                                    speedText = (avgSpeed / (1024 * 1024)).toFixed(1) + ' MB/s';
+                                }} else if (avgSpeed > 1024) {{
+                                    speedText = (avgSpeed / 1024).toFixed(1) + ' KB/s';
+                                }} else {{
+                                    speedText = Math.round(avgSpeed) + ' B/s';
+                                }}
+                                
+                                document.getElementById('speed').textContent = `Speed: ${speedText}`;
+                                lastSpeedUpdate = currentTime;
+                            }}
+                            
+                            lastLoaded = d.loaded;
+                            if (lastSpeedUpdate === 0) lastSpeedUpdate = currentTime;
+                        }}
+                        
+                        // Handle completion
+                        if (d.status === 'done') {{
+                            document.getElementById('status').style.color = 'var(--success)';
+                            document.getElementById('cancelBtn').textContent = 'Return to Images';
+                            document.getElementById('cancelBtn').className = 'button';
+                            setTimeout(() => {{ window.location = '/?images=1'; }}, 1500);
+                        }} else if (d.status === 'error') {{
+                            document.getElementById('status').style.color = 'var(--danger)';
+                            document.getElementById('cancelBtn').textContent = 'Back to Images';
+                            document.getElementById('cancelBtn').className = 'button';
+                        }}
+                        
+                        // Continue polling if not done
+                        if (d.status !== 'done' && d.status !== 'error') {{
+                            setTimeout(updateProgress, 500);
+                        }}
+                    }})
+                    .catch(e => {{
+                        console.error('Poll error:', e);
+                        setTimeout(updateProgress, 1500);
+                    }});
+            }}
+            
+            function updateError(error) {{
+                document.getElementById('status').textContent = 'Error';
+                document.getElementById('status').style.color = 'var(--danger)';
+                document.getElementById('pbtxt').textContent = error;
+                document.getElementById('cancelBtn').textContent = 'Back to Images';
+                document.getElementById('cancelBtn').className = 'button';
+            }}
+            
+            // Start polling
+            updateProgress();
+            
+            // Handle page visibility changes to reduce polling when tab is inactive
+            document.addEventListener('visibilitychange', () => {{
+                if (!document.hidden) {{
+                    // Force update when tab becomes visible again
+                    lastUpdate = 0;
+                    updateProgress();
+                }}
+            }});
+        </script>
+        """
         return self.wrap('Image Import Progress', body)
 
     def page_images(self, lv:LV, form):
