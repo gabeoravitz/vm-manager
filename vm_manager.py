@@ -2769,7 +2769,7 @@ class Handler(BaseHTTPRequestHandler):
                         disks.append((disk_path,bus,tgt))
                     if not disks:
                         raise RuntimeError('At least one disk required')
-                    loader_xml = "" if firmware!='uefi' else f"<loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader><nvram>/var/lib/libvirt/qemu/nvram/{name}_VARS.fd</nvram>"
+                    loader_xml = "" if firmware!='uefi' else f"<loader readonly='yes' type='pflash'>/usr/share/edk2/x64/OVMF_CODE.4m.fd</loader><nvram>/var/lib/libvirt/qemu/nvram/{name}_VARS.fd</nvram>"
                     
                     # Generate boot order XML
                     boot_devices = boot_order.split(',')
