@@ -4104,14 +4104,20 @@ class Handler(BaseHTTPRequestHandler):
                     if disk_file:
                         # vm_dir is parent directory of disk files (one level above disk file)
                         vm_dir=os.path.dirname(disk_file)
-                    # Undefine with NVRAM flag if available
+                    # Undefine with comprehensive NVRAM cleanup flags
                     flags=0
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_NVRAM'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_NVRAM
                     if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_MANAGED_SAVE'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE
+                    if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA
+                    if hasattr(libvirt,'VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA'): flags|=libvirt.VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA
                     try:
                         d.undefineFlags(flags)
-                    except Exception:
-                        d.undefine()
+                    except Exception as e:
+                        # If flags fail, try basic undefine
+                        try:
+                            d.undefine()
+                        except Exception as e2:
+                            raise RuntimeError(f'Failed to undefine domain: {e2}')
                     # Remove nvram file explicitly if still exists
                     if nvram_path and os.path.isfile(nvram_path):
                         try: os.remove(nvram_path)
@@ -4477,7 +4483,6 @@ class Handler(BaseHTTPRequestHandler):
                                     <source file='{safe_iso_path}'/>
                                     <target dev='{tgt}' bus='ide'/>
                                     <readonly/>
-                                    <boot order='2'/>
                                 </disk>"""
                                 
                                 # Use appropriate flags based on VM state
