@@ -6740,25 +6740,6 @@ class Handler(BaseHTTPRequestHandler):
             + "</div>"
             + "</div>"
             + "<small class='form-text' style='margin-top: 4px;'>ISO images from all storage pools are listed</small>"
-            + "</div>"
-            + "<div class='form-group'>"
-            + "<label for='pool_name'>Pool Name:</label>"
-            + "<input type='text' id='pool_name' name='pool_name' required "
-            + "       pattern='[a-zA-Z0-9_.-]+' "
-            + "       title='Only letters, numbers, dots, hyphens, and underscores are allowed'>"
-            + "<small class='form-text'>A name for the storage pool (letters, numbers, ., -, _)</small>"
-            + "</div>"
-            + "<div class='form-group'>"
-            + "<label for='mountpoint'>Directory Path:</label>"
-            + "<input type='text' id='mountpoint' name='mountpoint' required "
-            + "       placeholder='/path/to/storage' "
-            + "       title='Absolute path to the storage directory'>"
-            + "<small class='form-text'>Absolute path to an existing directory or a new one to create</small>"
-            + "</div>"
-            + "<div style='margin-top:16px;'>"
-            + "<button type='submit' class='button' name='create_pool' title='Create a new storage pool at the specified path'>"
-            + "<span class='icon'>+</span> Create Storage Pool"
-            + "</button>"
             + "</div>" 
             + "<div style='margin-top:8px'><input type='submit' class='button' value='Create' name='create_vm'> <button type='button' class='button secondary' onclick=\"closeModal('modal_vm')\">Cancel</button></div></form></div></div>" + script_add_disk)
 
@@ -7508,11 +7489,11 @@ class Handler(BaseHTTPRequestHandler):
         dev_rows_no_usb = ''.join(non_usb_dev_rows) or "<p class='inline-note'>No available disks. All disks are either mounted, part of existing RAID arrays, or have mounted partitions.</p>"
         modal_pool=(
             f"<div class='modal' id='modal_pool' hidden><div class='panel'><div style='display:flex;justify-content:space-between;align-items:center'><h3>Create Pool</h3><button class='close secondary' onclick=\"closeModal('modal_pool')\">X</button></div>"
-            + (
-                f"<form method='post' action='/?storage=1'><input type='hidden' name='create_pool' value='1'><label>Name <input name='pool_name' required></label><label>Mountpoint <select name='mountpoint' class='enh'>{mount_opts}</select></label><div style='margin-top:8px'><input type='submit' class='button' value='Create'> <button type='button' class='button secondary' onclick=\"closeModal('modal_pool')\">Cancel</button></div></form>"
-                if mounts
-                else "<p class='inline-note'>No candidate mountpoints.</p>"
-            )
+            + f"<form method='post' action='/?storage=1'><input type='hidden' name='create_pool' value='1'>"
+            + "<label>Name <input name='pool_name' required pattern='[a-zA-Z0-9_.-]+' title='Only letters, numbers, dots, hyphens, and underscores are allowed'></label>"
+            + "<label>Directory Path <input name='mountpoint' required placeholder='/path/to/storage' title='Absolute path to the storage directory'></label>"
+            + "<small class='form-text'>Enter any absolute path to an existing directory or a new one to create</small>"
+            + "<div style='margin-top:8px'><input type='submit' class='button' value='Create'> <button type='button' class='button secondary' onclick=\"closeModal('modal_pool')\">Cancel</button></div></form>"
             + "</div></div>"
         )
         modal_btrfs=(
