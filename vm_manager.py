@@ -3255,34 +3255,7 @@ class Handler(BaseHTTPRequestHandler):
         
         if form:
             try:
-                if 'create_network' in form:
-                    name = form.get('net_name', [''])[0]
-                    subnet = form.get('subnet', [''])[0]
-                    dhcp = form.get('enable_dhcp', [''])[0] == '1'
-                    
-                    if name and subnet:
-                        # Create simple isolated network
-                        if dhcp:
-                            network_xml = f"""<network>
-                                <name>{name}</name>
-                                <ip address='{subnet.split('/')[0]}' netmask='255.255.255.0'>
-                                    <dhcp>
-                                        <range start='{'.'.join(subnet.split('/')[0].split('.')[:-1])}.100' end='{'.'.join(subnet.split('/')[0].split('.')[:-1])}.200'/>
-                                    </dhcp>
-                                </ip>
-                            </network>"""
-                        else:
-                            network_xml = f"""<network>
-                                <name>{name}</name>
-                                <ip address='{subnet}' netmask='255.255.255.0'/>
-                            </network>"""
-                        
-                        net = lv.conn.networkDefineXML(network_xml)
-                        net.create()
-                        net.setAutostart(1)
-                        msg = f"<div class='inline-note success'>✅ Network '{name}' created</div>"
-                
-                elif 'create_bridge' in form:
+                if 'create_bridge' in form:
                     bridge_name = form.get('bridge_name', [''])[0].strip()
                     bridge_ip = form.get('bridge_ip', [''])[0].strip()
                     interface = form.get('interface', [''])[0].strip()
@@ -3294,13 +3267,13 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         # Create bridge connection
                         subprocess.check_call([
-                            'nmcli', 'connection', 'add', 'type', 'bridge', 
+                            'sudo', 'nmcli', 'connection', 'add', 'type', 'bridge', 
                             'con-name', bridge_name, 'ifname', bridge_name
                         ])
                         
                         # Set IP address
                         subprocess.check_call([
-                            'nmcli', 'connection', 'modify', bridge_name,
+                            'sudo', 'nmcli', 'connection', 'modify', bridge_name,
                             'ipv4.addresses', bridge_ip,
                             'ipv4.method', 'manual'
                         ])
@@ -3308,27 +3281,18 @@ class Handler(BaseHTTPRequestHandler):
                         # Add interface to bridge if specified
                         if interface:
                             subprocess.check_call([
-                                'nmcli', 'connection', 'add', 'type', 'bridge-slave',
+                                'sudo', 'nmcli', 'connection', 'add', 'type', 'bridge-slave',
                                 'con-name', f'{bridge_name}-slave', 'ifname', interface,
                                 'master', bridge_name
                             ])
                         
                         # Bring up the bridge
-                        subprocess.check_call(['nmcli', 'connection', 'up', bridge_name])
+                        subprocess.check_call(['sudo', 'nmcli', 'connection', 'up', bridge_name])
                         
                         msg = f"<div class='inline-note success'>✅ NetworkManager bridge '{bridge_name}' created with IP {bridge_ip}</div>"
                         
                     except subprocess.CalledProcessError as e:
                         raise RuntimeError(f'Failed to create NetworkManager bridge: {e}')
-                
-                elif 'delete_network' in form:
-                    net_name = form.get('net_name', [''])[0]
-                    if net_name:
-                        net = lv.get_network(net_name)
-                        if net.isActive():
-                            net.destroy()
-                        net.undefine()
-                        msg = f"<div class='inline-note success'>✅ Network '{net_name}' deleted</div>"
                 
                 elif 'delete_bridge' in form:
                     bridge_name = form.get('bridge_name', [''])[0].strip()
@@ -3337,14 +3301,14 @@ class Handler(BaseHTTPRequestHandler):
                             # Delete bridge slave connections first
                             try:
                                 subprocess.check_call([
-                                    'nmcli', 'connection', 'delete', f'{bridge_name}-slave'
+                                    'sudo', 'nmcli', 'connection', 'delete', f'{bridge_name}-slave'
                                 ], stderr=subprocess.DEVNULL)
                             except subprocess.CalledProcessError:
                                 pass  # Slave might not exist
                             
                             # Delete bridge connection
                             subprocess.check_call([
-                                'nmcli', 'connection', 'delete', bridge_name
+                                'sudo', 'nmcli', 'connection', 'delete', bridge_name
                             ])
                             
                             msg = f"<div class='inline-note success'>✅ NetworkManager bridge '{bridge_name}' deleted</div>"
@@ -3354,86 +3318,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 msg = f"<div class='inline-note error'>{html.escape(str(e))}</div>"
         
-        # List networks
-        network_rows = []
-        for net in lv.list_networks():
-            active = net.isActive()
-            autostart = net.autostart()
-            
-            # Get network info
-            net_xml = net.XMLDesc()
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(net_xml)
-            
-            ip_elem = root.find('ip')
-            ip_range = "N/A"
-            if ip_elem is not None:
-                address = ip_elem.get('address', 'N/A')
-                netmask = ip_elem.get('netmask', 'N/A')
-                ip_range = f"{address}/{netmask}"
-            
-            # Create network control buttons outside f-string to avoid backslash issues
-            net_name_escaped = net.name().replace("'", "\\'")
-            if active:
-                control_button = f'<button class="small secondary" onclick="controlNetwork(\'{net_name_escaped}\', \'stop\')">Stop</button>'
-            else:
-                control_button = f'<button class="small" onclick="controlNetwork(\'{net_name_escaped}\', \'start\')">Start</button>'
-            
-            network_rows.append(f"""
-            <tr>
-                <td>{html.escape(net.name())}</td>
-                <td><span class="badge {'running' if active else 'shutoff'}">{'Active' if active else 'Inactive'}</span></td>
-                <td>{ip_range}</td>
-                <td>{'Yes' if autostart else 'No'}</td>
-                <td>
-                    {control_button}
-                    <form method='post' class='inline'>
-                        <input type='hidden' name='delete_network' value='1'>
-                        <input type='hidden' name='net_name' value='{html.escape(net.name())}'>
-                        <button class='small danger' onclick="return confirm('Delete network?')">Delete</button>
-                    </form>
-                </td>
-            </tr>
-            """)
-        
-        network_table = f"""
-        <table>
-            <thead><tr><th>Name</th><th>Status</th><th>IP Range</th><th>Autostart</th><th>Actions</th></tr></thead>
-            <tbody>
-                {''.join(network_rows) if network_rows else '<tr><td colspan="5"><em>No networks found</em></td></tr>'}
-            </tbody>
-        </table>
-        """
-        
-        # Create network modal
-        create_modal = """
-        <div class='modal' id='modal_create_network' hidden>
-            <div class='panel'>
-                <div style='display:flex;justify-content:space-between;align-items:center'>
-                    <h3>🌐 Create Virtual Network</h3>
-                    <button class='close secondary' onclick="closeModal('modal_create_network')">×</button>
-                </div>
-                <form method='post'>
-                    <input type='hidden' name='create_network' value='1'>
-                    
-                    <label>Network Name <input name='net_name' required placeholder='my-network'></label>
-                    <label>Subnet (Gateway IP) <input name='subnet' required placeholder='192.168.100.1'></label>
-                    <label><input type='checkbox' name='enable_dhcp' value='1' checked> Enable DHCP (100-200 range)</label>
-                    
-                    <div style='margin-top:16px'>
-                        <input type='submit' class='button' value='Create Network'>
-                        <button type='button' class='button secondary' onclick="closeModal('modal_create_network')">Cancel</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        """
-        
         # Get NetworkManager bridges
         bridge_rows = []
         try:
             # List NetworkManager connections
-            result = subprocess.run(['nmcli', '-t', '-f', 'NAME,TYPE,DEVICE,STATE', 'connection', 'show'], 
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'NAME,TYPE,DEVICE,STATE', 'connection', 'show'], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.strip().split('\n'):
@@ -3443,7 +3332,7 @@ class Handler(BaseHTTPRequestHandler):
                             name, conn_type, device, state = parts[:4]
                             if conn_type == 'bridge':
                                 # Get IP address
-                                ip_result = subprocess.run(['nmcli', '-t', '-f', 'IP4.ADDRESS', 'connection', 'show', name],
+                                ip_result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'IP4.ADDRESS', 'connection', 'show', name],
                                                          capture_output=True, text=True, timeout=3)
                                 ip_addr = ip_result.stdout.strip().replace('IP4.ADDRESS:', '') if ip_result.returncode == 0 else 'N/A'
                                 
@@ -3477,7 +3366,7 @@ class Handler(BaseHTTPRequestHandler):
         # Get available network interfaces
         interface_options = ""
         try:
-            result = subprocess.run(['nmcli', '-t', '-f', 'DEVICE,TYPE,STATE', 'device'], 
+            result = subprocess.run(['sudo', 'nmcli', '-t', '-f', 'DEVICE,TYPE,STATE', 'device'], 
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 for line in result.stdout.strip().split('\n'):
@@ -3485,8 +3374,9 @@ class Handler(BaseHTTPRequestHandler):
                         parts = line.split(':')
                         if len(parts) >= 3:
                             device, dev_type, state = parts[:3]
-                            if dev_type == 'ethernet' and state == 'disconnected':
-                                interface_options += f"<option value='{html.escape(device)}'>{html.escape(device)}</option>"
+                            # Include ethernet interfaces that are available (connected, disconnected, or unmanaged)
+                            if dev_type == 'ethernet' and state in ['disconnected', 'unmanaged', 'connected']:
+                                interface_options += f"<option value='{html.escape(device)}'>{html.escape(device)} ({html.escape(state)})</option>"
         except Exception:
             pass
         
@@ -3521,27 +3411,18 @@ class Handler(BaseHTTPRequestHandler):
 
         return f"""
         <div class="card">
-            <h3>🌐 Network Management</h3>
+            <h3>🌉 NetworkManager Bridge Management</h3>
             {msg}
-            <p>Manage virtual networks and NetworkManager bridges for VM connectivity.</p>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="button" onclick="openModal('modal_create_network')">🌐 Create Virtual Network</button>
-                <button class="button secondary" onclick="openModal('modal_create_bridge')">🌉 Create NM Bridge</button>
-            </div>
+            <p>Create and manage NetworkManager bridges for VM connectivity with direct network access.</p>
+            <button class="button" onclick="openModal('modal_create_bridge')">🌉 Create Bridge</button>
         </div>
         
         <div class="card">
-            <h4>📡 Virtual Networks (libvirt)</h4>
-            {network_table}
-        </div>
-        
-        <div class="card">
-            <h4>🌉 NetworkManager Bridges</h4>
+            <h4>🌉 Existing Bridges</h4>
             <p class="inline-note">NetworkManager bridges provide direct network access for VMs.</p>
             {bridge_table}
         </div>
         
-        {create_modal}
         {bridge_modal}
         
         <script>
