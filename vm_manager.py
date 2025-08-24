@@ -2664,7 +2664,12 @@ class Handler(BaseHTTPRequestHandler):
             if form and 'create_vm' in form:
                 try:
                     name=form.get('name',[''])[0]
-                    mem=parse_int(form.get('memory_mb',['2048'])[0],2048)
+                    # Convert GiB to MiB for memory
+                    mem=int(float(form.get('memory_gb',['2'])[0]) * 1024)
+                    if mem < 256:  # Minimum 256 MiB
+                        mem = 256
+                    elif mem > 1048576:  # Maximum 1 TiB
+                        mem = 1048576
                     vcpus=parse_int(form.get('vcpus',['2'])[0],2)
                     pool_name=form.get('pool',[''])[0]
                     bridge=form.get('bridge',['bridge0'])[0]
@@ -4175,7 +4180,8 @@ class Handler(BaseHTTPRequestHandler):
                 if 'update_cpu_mem' in form:
                     # Allow increasing while running; offline allows full redefinition
                     new_v = parse_int(form.get('vcpus', [''])[0], 1)
-                    new_m = parse_int(form.get('memory_mb', [''])[0], 128)
+                    # Convert GiB to MiB for memory
+                    new_m = int(float(form.get('memory_gb', ['1'])[0]) * 1024)
                     new_os_type = form.get('os_type', ['linux'])[0]
                     new_cpu_mode = form.get('cpu_mode', ['host-model'])[0]
                     new_cpu_model = form.get('cpu_model', ['qemu64'])[0]
@@ -4450,44 +4456,58 @@ class Handler(BaseHTTPRequestHandler):
                 # Handle CD/DVD attachment
                 if 'attach_cdrom' in form: 
                     try:
-                        iso_path = form.get('iso_path', [''])[0]
-                        if iso_path and os.path.exists(iso_path):
-                            # Find next available CD-ROM target
-                            dom_xml = d.XMLDesc(0)
-                            import xml.etree.ElementTree as ET
-                            root = ET.fromstring(dom_xml)
-                            existing_cdroms = [disk.find('target').get('dev') for disk in root.findall('.//devices/disk[@device="cdrom"]') if disk.find('target') is not None]
-                            
-                            # Generate next available CD-ROM target (hda, hdb, hdc, etc.)
-                            cdrom_letters = 'abcdefghijklmnopqrstuvwxyz'
-                            tgt = None
-                            for letter in cdrom_letters:
-                                candidate = f'hd{letter}'
-                                if candidate not in existing_cdroms:
-                                    tgt = candidate
-                                    break
-                            
-                            if tgt:
-                                cdrom_xml = f"""<disk type='file' device='cdrom'>
-                                    <driver name='qemu' type='raw'/>
-                                    <source file='{html.escape(iso_path)}'/>
-                                    <target dev='{tgt}' bus='ide'/>
-                                    <readonly/>
-                                </disk>"""
+                        cdrom_iso = form.get('cdrom_iso', [''])[0]
+                        if cdrom_iso and '::' in cdrom_iso:
+                            pool_name, iso_name = cdrom_iso.split('::', 1)
+                            pool = lv.get_pool(pool_name)
+                            if pool:
+                                # Get the pool path from XML
+                                pxml = pool.XMLDesc(0)
+                                import xml.etree.ElementTree as ET
+                                proot = ET.fromstring(pxml)
+                                pool_path = proot.findtext('.//target/path') or ''
+                                iso_path = os.path.join(pool_path, 'images', iso_name)
                                 
-                                # Use appropriate flags based on VM state
-                                state, _ = d.state()
-                                if state == libvirt.VIR_DOMAIN_RUNNING:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
-                                else:
-                                    flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                if os.path.exists(iso_path):
+                                    # Find next available CD-ROM target
+                                    dom_xml = d.XMLDesc(0)
+                                    root = ET.fromstring(dom_xml)
+                                    existing_cdroms = [disk.find('target').get('dev') for disk in root.findall('.//devices/disk[@device="cdrom"]') if disk.find('target') is not None]
                                     
-                                d.attachDeviceFlags(cdrom_xml, flags)
-                                msg += f"<div class='inline-note'>CD/DVD attached successfully as {tgt}.</div>"
+                                    # Generate next available CD-ROM target (hda, hdb, hdc, etc.)
+                                    cdrom_letters = 'abcdefghijklmnopqrstuvwxyz'
+                                    tgt = None
+                                    for letter in cdrom_letters:
+                                        candidate = f'hd{letter}'
+                                        if candidate not in existing_cdroms:
+                                            tgt = candidate
+                                            break
+                                    
+                                    if tgt:
+                                        cdrom_xml = f"""<disk type='file' device='cdrom'>
+                                            <driver name='qemu' type='raw'/>
+                                            <source file='{html.escape(iso_path)}'/>
+                                            <target dev='{tgt}' bus='ide'/>
+                                            <readonly/>
+                                        </disk>"""
+                                        
+                                        # Use appropriate flags based on VM state
+                                        state, _ = d.state()
+                                        if state == libvirt.VIR_DOMAIN_RUNNING:
+                                            flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_LIVE',0) | getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                        else:
+                                            flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
+                                            
+                                        d.attachDeviceFlags(cdrom_xml, flags)
+                                        msg += f"<div class='inline-note'>CD/DVD attached successfully as {tgt}.</div>"
+                                    else:
+                                        msg += "<div class='inline-note error'>No available CD-ROM targets.</div>"
+                                else:
+                                    msg += f"<div class='inline-note error'>ISO file not found in pool: {pool_name}/{iso_name}</div>"
                             else:
-                                msg += "<div class='inline-note error'>No available CD-ROM targets.</div>"
+                                msg += f"<div class='inline-note error'>Storage pool not found: {pool_name}</div>"
                         else:
-                            msg += "<div class='inline-note error'>ISO file not found or not selected.</div>"
+                            msg += "<div class='inline-note error'>Please select a valid ISO image.</div>"
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to attach CD/DVD: {html.escape(str(e))}</div>"
                 
@@ -4498,9 +4518,9 @@ class Handler(BaseHTTPRequestHandler):
                         dom_xml = d.XMLDesc(0)
                         import xml.etree.ElementTree as ET
                         root = ET.fromstring(dom_xml)
-                        for disk in root.findall('.//devices/disk[@device="cdrom"]'):
-                            target = disk.find('target')
-                            if target is not None and target.get('dev') == tgt:
+                        for disk in root.findall('.//devices/disk'):
+                            t = disk.find('target')
+                            if t is not None and t.get('dev') == tgt:
                                 # Create empty CD-ROM XML (eject)
                                 ejected_xml = f"""<disk type='file' device='cdrom'>
                                     <driver name='qemu' type='raw'/>
@@ -4528,9 +4548,9 @@ class Handler(BaseHTTPRequestHandler):
                         dom_xml = d.XMLDesc(0)
                         import xml.etree.ElementTree as ET
                         root = ET.fromstring(dom_xml)
-                        for disk in root.findall('.//devices/disk[@device="cdrom"]'):
-                            target = disk.find('target')
-                            if target is not None and target.get('dev') == tgt:
+                        for disk in root.findall('.//devices/disk'):
+                            t = disk.find('target')
+                            if t is not None and t.get('dev') == tgt:
                                 # Use appropriate flags based on VM state
                                 state, _ = d.state()
                                 if state == libvirt.VIR_DOMAIN_RUNNING:
@@ -5248,8 +5268,9 @@ class Handler(BaseHTTPRequestHandler):
             </div>
             
             <div class='form-group'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>Memory (MiB)</label>
-                <input name='memory_mb' type='number' value='{mem_display}' min='{mem_display}' step='128' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
+                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>Memory (GiB)</label>
+                <input name='memory_gb' type='number' value='{int(mem_display/1024)}' min='{max(1, int(mem_display/1024))}' step='0.5' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
+                <small class='form-text' style='font-size: 0.8em; color: var(--text-muted);'>{mem_display} MiB</small>
             </div>
             
             <div class='form-group'>
@@ -5527,7 +5548,7 @@ class Handler(BaseHTTPRequestHandler):
                         </select>
                     </div>
                     <div style='display: flex; gap: 12px; justify-content: flex-end;'>
-                        <button type='button' onclick='closeMigrationModal()' class='button secondary'>Cancel</button>
+                        <button type='button' class='button secondary' onclick='closeMigrationModal()'>Cancel</button>
                         <button type='submit' class='button primary'>🔄 Start Migration</button>
                     </div>
                 </form>
@@ -5570,9 +5591,13 @@ class Handler(BaseHTTPRequestHandler):
                 const progressBar = document.getElementById('migration-bar-' + diskTarget);
                 const progressPercent = document.getElementById('migration-percent-' + diskTarget);
                 
-                if (statusText) statusText.textContent = 'Starting migration...';
-                if (progressBar) progressBar.style.width = '0%';
-                if (progressPercent) progressPercent.textContent = '0%';
+                if (statusText && progressBar && progressPercent) {
+                    const progress = 0;
+                    
+                    statusText.textContent = 'Starting migration...';
+                    progressBar.style.width = progress + '%';
+                    progressPercent.textContent = progress + '%';
+                }
             }
         };
         
@@ -5744,7 +5769,7 @@ class Handler(BaseHTTPRequestHandler):
         nic_add_form=f"""
         <div style='margin-top: 16px;'>
             <details>
-                <summary style='padding: 12px; background: var(--bg-secondary); border-radius: 4px; cursor: pointer; font-weight: 600; margin-bottom: 12px;'>➕ Add Network Interface</summary>
+                <summary style='padding: 12px; background: var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; margin-bottom: 12px;'>➕ Add Network Interface</summary>
                 <div class='card'>
                     <form method='post' style='display: grid; grid-template-columns: 1fr 2fr 1fr auto; gap: 16px; align-items: end;'>
                         <input type='hidden' name='add_nic' value='1'>
@@ -5960,14 +5985,14 @@ class Handler(BaseHTTPRequestHandler):
                     
                     <!-- Add New Disk -->
                     <details>
-                        <summary style='padding: 8px; background: var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; margin-bottom: 8px; font-size: 14px;'>➕ Add New Disk</summary>
+                        <summary style='padding: 12px; background: var(--border); border-radius: 6px; cursor: pointer; font-weight: 600; margin-bottom: 12px;'>➕ Add New Disk</summary>
                         <div style='background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-top: 6px;'>
                             <form method='post' style='display: flex; flex-wrap: wrap; gap: 16px; align-items: end;'>
                                 <input type='hidden' name='attach_disk' value='1'>
                                 
                                 <div class='form-group'>
                                     <label style='display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: var(--fg);'>Size (GB)</label>
-                                    <input name='disk_size_gb' type='number' min='1' value='20' placeholder='20' style='width: 80px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg);'>
+                                    <input name='disk_size_gb' type='number' value='20' placeholder='20' style='width: 80px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--fg);'>
                                 </div>
                                 
                                 <div class='form-group'>
@@ -6113,7 +6138,7 @@ class Handler(BaseHTTPRequestHandler):
                                 
                                 <div class='form-group'>
                                     <label style='display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; color: var(--fg);'>ISO Image</label>
-                                    <select name='iso_path' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg); font-size: 13px;' required>
+                                    <select name='cdrom_iso' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg); font-size: 13px;' required>
                                         <option value=''>Select an ISO file...</option>
                                         {iso_options}
                                     </select>
@@ -6451,22 +6476,21 @@ class Handler(BaseHTTPRequestHandler):
                 if clone_src:
                     # If clone_src matches imported image file in images dir use it; else treat as volume
                     img_path=os.path.join(pool_path,'images',clone_src)
-                    if os.path.isfile(img_path):
-                        src_path=img_path
+                    if os.path.exists(img_path):
+                        # Copy template and resize
+                        cmd = ['cp', '--reflink=always', img_path, base_path]
+                        subprocess.run(cmd, check=True, capture_output=True, timeout=30)
+                        # Always resize to match requested size (unless 0 = keep template size)
+                        if disk_gb > 0:
+                            resize_cmd = ['qemu-img', 'resize', base_path, f'{disk_gb}G']
+                            subprocess.run(resize_cmd, check=True, capture_output=True, timeout=30)
+                        attach_immediately = True
                     else:
-                        src_vol=pool.storageVolLookupByName(clone_src)
-                        src_path=src_vol.path()
-                    try:
-                        subprocess.check_call(['cp','--reflink=always',src_path, base_path])
-                    except Exception:
-                        try:
-                            subprocess.check_call(['cp', '--reflink=always', src_path, base_path])
-                            logger.info(f"Used reflink copy for template")
-                        except Exception:
-                            shutil.copy2(src_path, base_path)
+                        raise FileNotFoundError(f"Template not found: {clone_src}")
                 else:
-                    vol_xml=f"<volume><name>{base_name}</name><capacity unit='GB'>{disk_gb}</capacity><target><format type='qcow2'/></target></volume>"; pool.createXML(vol_xml,0)
-                path=pool.storageVolLookupByName(base_name).path()
+                    # Create new disk
+                    vol_xml = f"<volume><name>{base_name}</name><capacity unit='GB'>{disk_gb}</capacity><target><format type='qcow2'/></target></volume>"; pool.createXML(vol_xml, 0)
+                    path = pool.storageVolLookupByName(base_name).path()
                 
                 # Generate VM XML with OS-specific features
                 features_xml = '<features><acpi/><apic/>'
@@ -6477,17 +6501,6 @@ class Handler(BaseHTTPRequestHandler):
                         <relaxed state='on'/>
                         <vapic state='on'/>
                         <spinlocks state='on' retries='8191'/>
-                        <vpindex state='on'/>
-                        <runtime state='on'/>
-                        <synic state='on'/>
-                        <stimer state='on'/>
-                        <reset state='on'/>
-                        <vendor_id state='on' value='KVM Hv'/>
-                        <frequencies state='on'/>
-                        <reenlightenment state='on'/>
-                        <tlbflush state='on'/>
-                        <ipi state='on'/>
-                        <evmcs state='on'/>
                     </hyperv>
                     <kvm>
                         <hidden state='on'/>
@@ -6583,14 +6596,50 @@ class Handler(BaseHTTPRequestHandler):
         return ("<div class='modal' id='modal_vm' hidden><div class='panel'><div style='display:flex;align-items:center;justify-content:space-between'><h3>Create VM</h3><button class='close secondary' onclick=\"closeModal('modal_vm')\">X</button></div>"
             "<form method='post' action='/'><input type='hidden' name='create_vm' value='1'>"
             "<label>Name <input name='name' required></label>"
-            "<div class='two-col' style='gap:12px'><label>Mem MiB <input name='memory_mb' type='number' value='2048'></label><label>vCPUs <input name='vcpus' type='number' value='2'></label></div>"
+            "<div class='two-col' style='gap:12px'><label>Memory (GiB) <input name='memory_gb' type='number' value='2' min='0.5' step='0.5' required></label><label>vCPUs <input name='vcpus' type='number' value='2' min='1' required></label></div>"
             f"<label>Pool <select class='enh' name='pool'>{pool_opts}</select></label>"
             f"<label>Bridge <select class='enh' name='bridge'>{bridge_sel}</select></label>"
             f"<label>NIC Model <select class='enh' name='nic_model'>{nic_model_opts}</select></label>"
             "<div class='two-col' style='gap:12px'><label>Firmware <select class='enh' name='firmware'><option value='bios'>BIOS/MBR</option><option value='uefi'>UEFI</option></select></label><label>Machine <select class='enh' name='machine'><option value='pc'>pc</option><option value='q35'>q35</option></select></label></div>"
             "<label>Boot Order <select class='enh' name='boot_order'><option value='hd,cdrom,network'>Hard Disk, CD/DVD, Network</option><option value='cdrom,hd,network'>CD/DVD, Hard Disk, Network</option><option value='network,hd,cdrom'>Network, Hard Disk, CD/DVD</option><option value='hd,network,cdrom'>Hard Disk, Network, CD/DVD</option></select></label>"
             f"{disk_help}<div id='disk_specs'></div>{add_disk_btn}"
-            "<div style='margin-top:8px'><input type='submit' class='button' value='Create'> <button type='button' class='button secondary' onclick=\"closeModal('modal_vm')\">Cancel</button></div></form></div></div>"+script_add_disk)
+            "<h4 style='margin: 1.2em 0 0.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border);'>CD/DVD Drive</h4>"
+            "<div class='form-group' style='margin-bottom: 0.5rem;'>"
+            "<div class='two-col' style='gap: 12px; align-items: center;'>"
+            "<div>"
+            "<label style='display: flex; align-items: center; gap: 8px; cursor: pointer;'>"
+            "<input type='checkbox' name='enable_cdrom' id='enable_cdrom' onchange=\"document.getElementById('cdrom_iso_container').style.display=this.checked?'block':'none'\">"
+            "<span>Attach CD/DVD Drive</span>"
+            "</label>"
+            "</div>"
+            "<div id='cdrom_iso_container' style='display: none; width: 100%;'>"
+            "<select name='cdrom_iso' class='enh' style='width: 100%;'>"
+            "<option value=''>Select ISO image</option>" + ''.join(f'<option value=\"{html.escape(p.name())}::{html.escape(img)}\">{html.escape(p.name())}/{html.escape(img)}</option>' for p in lv.list_pools() for img in self.list_iso_images(p))
+            "</select>"
+            "</div>"
+            "</div>"
+            "<small class='form-text' style='margin-top: 4px;'>ISO images from all storage pools are listed</small>"
+            "</div>"
+            "<div class='form-group'>"
+            "<label for='pool_name'>Pool Name:</label>"
+            "<input type='text' id='pool_name' name='pool_name' required "
+            "       pattern='[a-zA-Z0-9_.-]+' "
+            "       title='Only letters, numbers, dots, hyphens, and underscores are allowed'>"
+            "<small class='form-text'>A name for the storage pool (letters, numbers, ., -, _)</small>"
+            "</div>"
+            "<div class='form-group'>"
+            "<label for='mountpoint'>Directory Path:</label>"
+            "<input type='text' id='mountpoint' name='mountpoint' required "
+            "       placeholder='/path/to/storage' "
+            "       title='Absolute path to the storage directory'>"
+            "<small class='form-text'>Absolute path to an existing directory or a new one to create</small>"
+            "</div>"
+            "<div style='margin-top:16px;'>"
+            "<button type='submit' class='button' name='create_pool' title='Create a new storage pool at the specified path'>"
+            "<span class='icon'>+</span> Create Storage Pool"
+            "</button>"
+            "</div>" 
+            "<div style='margin-top:8px'><input type='submit' class='button' value='Create' name='create_vm'> <button type='button' class='button secondary' onclick=\"closeModal('modal_vm')\">Cancel</button></div></form></div></div>"+script_add_disk)
 
     def progress_page(self, pid: str):
         body = f"""
@@ -6822,11 +6871,22 @@ class Handler(BaseHTTPRequestHandler):
         
         if form and 'ingest_image' in form:
             try:
-                pool_name = form.get('pool', [''])[0]
+                pool_name = form.get('pool', [''])[0].strip()
                 src = form.get('source', [''])[0].strip()
                 out = form.get('out_name', ['imported'])[0].strip() or 'imported'
+                
+                if not pool_name:
+                    raise RuntimeError('Please select a storage pool')
                 if not src:
-                    raise RuntimeError('No source specified')
+                    raise RuntimeError('Please specify a source URL or path')
+                    
+                # Verify the pool exists
+                try:
+                    pool = lv.get_pool(pool_name)
+                    if not pool:
+                        raise RuntimeError(f'Storage pool "{pool_name}" not found')
+                except Exception as e:
+                    raise RuntimeError(f'Error accessing storage pool: {str(e)}')
                 
                 # Auto-fill output name for ISO files
                 if src.lower().endswith('.iso'):
@@ -6892,8 +6952,31 @@ class Handler(BaseHTTPRequestHandler):
             f"<label>Pool <select name='pool' class='enh'>{pools_opts}</select></label>"
             "<label>Source (http/https/nfs/local) <input name='source' id='image-source' required oninput='updateImageName(this)'></label>"
             "<label>Output Name <input name='out_name' id='image-output' value='imported'></label>"
-            "<div style='margin-top:8px'><input type='submit' class='button' value='Start'> "
+            "<div id='pool_required' style='color: #ff6b6b; font-size: 0.9em; margin: 6px 0; display: none;'>Please select a storage pool</div>"
+            "<div style='margin-top:8px'><input type='submit' class='button' value='Start' id='start_import' disabled> "
             "<button type='button' class='button secondary' onclick=\"closeModal('modal_image')\">Cancel</button></div></form>"
+            "<script>"
+            "document.addEventListener('DOMContentLoaded', function() {"
+            "  const poolSelect = document.querySelector(\"select[name='pool']\");"
+            "  const startButton = document.getElementById('start_import');"
+            "  const sourceInput = document.querySelector(\"input[name='source']\");"
+            "  const poolRequired = document.getElementById('pool_required');"
+            "  "
+            "  function validateForm() {"
+            "    const poolSelected = poolSelect && poolSelect.value.trim() !== '';"
+            "    const sourceFilled = sourceInput && sourceInput.value.trim() !== '';"
+            "    "
+            "    if (startButton) startButton.disabled = !(poolSelected && sourceFilled);"
+            "    if (poolRequired) poolRequired.style.display = poolSelect && !poolSelected ? 'block' : 'none';"
+            "  }"
+            "  "
+            "  if (poolSelect) poolSelect.addEventListener('change', validateForm);"
+            "  if (sourceInput) sourceInput.addEventListener('input', validateForm);"
+            "  "
+            "  // Initial validation"
+            "  validateForm();"
+            "});"
+            "</script>"
             "<script>"
             "function updateImageName(input) {"
             "  const src = input.value.trim();"
@@ -6915,7 +6998,25 @@ class Handler(BaseHTTPRequestHandler):
             f"<label>Pool <select name='pool'>{pools_opts}</select></label>"
             "<label>Source <input name='source' required></label>"
             "<label>Output Name <input name='out_name' value='imported'></label>"
-            "<div style='margin-top:6px'><input type='submit' class='button' value='Start'></div></form>"
+            "<div class='inline-note error' style='display: none;' id='fallback_pool_error'>Please select a storage pool</div>"
+            "<div style='margin-top:6px'><input type='submit' class='button' value='Start' onclick=\"return validateFallbackForm()\"></div></form>"
+            "<script>"
+            "function validateFallbackForm() {"
+            "  const poolSelect = document.querySelector('#inline_ingest select[name=\"pool\"]');"
+            "  const sourceInput = document.querySelector('#inline_ingest input[name=\"source\"]');"
+            "  const errorDiv = document.getElementById('fallback_pool_error');"
+            "  "
+            "  if (!poolSelect || !poolSelect.value.trim()) {"
+            "    if (errorDiv) errorDiv.style.display = 'block';"
+            "    return false;"
+            "  }"
+            "  if (!sourceInput || !sourceInput.value.trim()) {"
+            "    if (errorDiv) errorDiv.style.display = 'block';"
+            "    return false;"
+            "  }"
+            "  return true;"
+            "}"
+            "</script>"
             "<p class='inline-note'>Showing fallback because JS might be disabled. Modal normally hides this.</p></div>"
         )
         btn = ("<p><a class='button modal-trigger' data-modal='modal_image' href='#' role='button' onclick=\"var m=document.getElementById('modal_image');if(m){m.hidden=false;m.style.display='flex';}return false;\">Import Image</a></p>")
@@ -6940,12 +7041,43 @@ class Handler(BaseHTTPRequestHandler):
         if form:
             try:
                 if 'create_pool' in form:
-                    name=form.get('pool_name',[''])[0]
-                    mp=form.get('mountpoint',[''])[0]
-                    if not name or not mp:
-                        raise RuntimeError('Missing fields')
-                    lv.define_pool_dir(name, mp)
-                    msg+="<div class='inline-note'>Pool created.</div>"
+                    name = form.get('pool_name', [''])[0].strip()
+                    mp = form.get('mountpoint', [''])[0].strip()
+                    
+                    # Validate inputs
+                    if not name:
+                        raise RuntimeError('Please specify a pool name')
+                    if not mp:
+                        raise RuntimeError('Please specify a mount point path')
+                    
+                    # Validate pool name
+                    if not all(c.isalnum() or c in '.-_' for c in name):
+                        raise RuntimeError('Pool name can only contain letters, numbers, dots, hyphens, and underscores')
+                    
+                    # Validate and prepare the mount point path
+                    try:
+                        # Expand user directory and resolve any relative paths
+                        mp = os.path.abspath(os.path.expanduser(mp))
+                        
+                        # Check if path exists and is a directory, or create it
+                        if os.path.exists(mp):
+                            if not os.path.isdir(mp):
+                                raise RuntimeError(f'Path exists but is not a directory: {mp}')
+                            if not os.access(mp, os.W_OK):
+                                raise RuntimeError(f'No write permission for directory: {mp}')
+                        else:
+                            # Create the directory and any parent directories
+                            os.makedirs(mp, mode=0o755, exist_ok=True)
+                            msg += f"<div class='inline-note'>Created directory: {mp}</div>"
+                        
+                        # Create the pool
+                        lv.define_pool_dir(name, mp)
+                        msg += f"<div class='inline-note success'>Storage pool '{name}' created successfully at {mp}</div>"
+                        
+                    except OSError as e:
+                        raise RuntimeError(f'Failed to create directory {mp}: {str(e)}')
+                    except Exception as e:
+                        raise RuntimeError(f'Failed to create storage pool: {str(e)}')
                 if 'create_btrfs_raid' in form:
                     label=form.get('label',['btrfs_raid'])[0]
                     level=form.get('btrfs_level',['raid1'])[0]
