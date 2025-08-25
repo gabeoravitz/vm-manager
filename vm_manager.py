@@ -6997,7 +6997,9 @@ class Handler(BaseHTTPRequestHandler):
                 pid = str(time.time())
                 start_image_ingest(pid, pool_name, src, out)
                 # Redirect to progress page with auto-refresh
-                self._send_redirect(f"/?images=1&progress={pid}")
+                self.send_response(302)
+                self.send_header('Location', f"/?images=1&progress={pid}")
+                self.end_headers()
                 return
             except Exception as e:
                 msg += f"<div class='inline-note'>{html.escape(str(e))}</div>"
@@ -7323,65 +7325,40 @@ class Handler(BaseHTTPRequestHandler):
             </script>
             """
         
-        # Add simple auto-refresh script for progress updates
+        # Add auto-refresh script for progress updates
         auto_refresh_script = ""
-        if prog_blocks:  # Only add if there are active progress blocks
+        if prog_blocks or qs and 'progress' in qs:  # Add if there are progress blocks OR we're on a progress page
             auto_refresh_script = f"""
             <script>
-            // Simple auto-refresh for progress updates
+            // Auto-refresh for progress updates
             if (!window.imageProgressInterval) {{
                 window.imageProgressInterval = setInterval(() => {{
-                    // Check if there are still progress blocks visible
+                    // Check if there are still progress blocks visible or if we're on a progress page
                     const progressCards = document.querySelectorAll('.card');
                     let hasActiveProgress = false;
+                    
+                    // Check for progress bars in cards
                     progressCards.forEach(card => {{
-                        const progressBar = card.querySelector('div[style*="height:8px"]');
+                        const progressBar = card.querySelector('div[style*="height:4px"], div[style*="height:8px"]');
                         if (progressBar) {{
                             hasActiveProgress = true;
                         }}
                     }});
                     
+                    // Also check if we're on a progress page (URL contains progress parameter)
+                    if (window.location.search.includes('progress=')) {{
+                        hasActiveProgress = true;
+                    }}
+                    
                     if (hasActiveProgress) {{
-                        // Fetch updated progress without full page reload
-                        fetch('/?images=1')
-                            .then(response => response.text())
-                            .then(html => {{
-                                const parser = new DOMParser();
-                                const doc = parser.parseFromString(html, 'text/html');
-                                
-                                // Update progress bars in place
-                                const currentCards = document.querySelectorAll('.card');
-                                const newCards = doc.querySelectorAll('.card');
-                                
-                                currentCards.forEach(currentCard => {{
-                                    const currentProgressBar = currentCard.querySelector('div[style*="height:4px"]');
-                                    if (currentProgressBar) {{
-                                        // Find matching card in new HTML
-                                        const cardText = currentCard.textContent;
-                                        newCards.forEach(newCard => {{
-                                            if (newCard.textContent.includes(cardText.split(' ')[0])) {{
-                                                const newProgressSection = newCard.querySelector('div[style*="margin-top:8px"]');
-                                                if (newProgressSection) {{
-                                                    const oldProgressSection = currentCard.querySelector('div[style*="margin-top:8px"]');
-                                                    if (oldProgressSection) {{
-                                                        oldProgressSection.innerHTML = newProgressSection.innerHTML;
-                                                    }}
-                                                }}
-                                            }}
-                                        }});
-                                    }}
-                                }});
-                            }})
-                            .catch(error => {{
-                                console.log('Progress update failed, falling back to reload');
-                                window.location.reload();
-                            }});
+                        // Simple page reload to update progress
+                        window.location.reload();
                     }} else {{
                         // No more active progress, clear interval
                         clearInterval(window.imageProgressInterval);
                         window.imageProgressInterval = null;
                     }}
-                }}, 2000); // Update every 2 seconds
+                }}, 3000); // Refresh every 3 seconds
             }}
             </script>
             """
