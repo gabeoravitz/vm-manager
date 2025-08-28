@@ -5134,15 +5134,25 @@ class Handler(BaseHTTPRequestHandler):
                         if state == libvirt.VIR_DOMAIN_RUNNING:
                             msg += f"<div class='inline-note error'>Cannot modify graphics while VM is running. Please stop the VM first.</div>"
                         else:
-                            if gfx_type == 'vnc':
-                                graphics_xml = "<graphics type='vnc' port='-1' listen='127.0.0.1'/>"
-                            elif gfx_type == 'spice':
-                                graphics_xml = "<graphics type='spice' port='-1' listen='127.0.0.1'/>"
-                            else:
-                                graphics_xml = "<graphics type='vnc' port='-1' listen='127.0.0.1'/>"
+                            # Get current XML and modify it
+                            dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            devices = root.find('.//devices')
                             
-                            d.attachDeviceFlags(graphics_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-                            msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter added successfully.</div>"
+                            if devices is not None:
+                                # Create new graphics element
+                                new_graphics = ET.Element('graphics')
+                                new_graphics.set('type', gfx_type)
+                                new_graphics.set('port', '-1')
+                                new_graphics.set('listen', '127.0.0.1')
+                                devices.append(new_graphics)
+                                
+                                # Redefine domain with updated XML
+                                new_xml = ET.tostring(root, encoding='unicode')
+                                d.undefine()
+                                lv.conn.defineXML(new_xml)
+                                msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter added successfully.</div>"
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to add graphics adapter: {html.escape(str(e))}</div>"
                 
@@ -5156,12 +5166,20 @@ class Handler(BaseHTTPRequestHandler):
                             dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
                             import xml.etree.ElementTree as ET
                             root = ET.fromstring(dom_xml)
+                            devices = root.find('.//devices')
                             
-                            for graphics in root.findall('.//devices/graphics'):
-                                if graphics.get('type') == gfx_type:
-                                    d.detachDeviceFlags(ET.tostring(graphics, encoding='unicode'), libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-                                    msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter removed successfully.</div>"
-                                    break
+                            if devices is not None:
+                                # Find and remove graphics element
+                                for graphics in devices.findall('graphics'):
+                                    if graphics.get('type') == gfx_type:
+                                        devices.remove(graphics)
+                                        
+                                        # Redefine domain with updated XML
+                                        new_xml = ET.tostring(root, encoding='unicode')
+                                        d.undefine()
+                                        lv.conn.defineXML(new_xml)
+                                        msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter removed successfully.</div>"
+                                        break
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to remove graphics adapter: {html.escape(str(e))}</div>"
                 
@@ -5173,9 +5191,25 @@ class Handler(BaseHTTPRequestHandler):
                         if state == libvirt.VIR_DOMAIN_RUNNING:
                             msg += f"<div class='inline-note error'>Cannot modify video while VM is running. Please stop the VM first.</div>"
                         else:
-                            video_xml = f"<video><model type='{video_type}' vram='{video_vram}'/></video>"
-                            d.attachDeviceFlags(video_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-                            msg += f"<div class='inline-note'>{video_type.upper()} video adapter added successfully.</div>"
+                            # Get current XML and modify it
+                            dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            devices = root.find('.//devices')
+                            
+                            if devices is not None:
+                                # Create new video element
+                                new_video = ET.Element('video')
+                                model = ET.SubElement(new_video, 'model')
+                                model.set('type', video_type)
+                                model.set('vram', video_vram)
+                                devices.append(new_video)
+                                
+                                # Redefine domain with updated XML
+                                new_xml = ET.tostring(root, encoding='unicode')
+                                d.undefine()
+                                lv.conn.defineXML(new_xml)
+                                msg += f"<div class='inline-note'>{video_type.upper()} video adapter added successfully.</div>"
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to add video adapter: {html.escape(str(e))}</div>"
                 
@@ -5189,13 +5223,21 @@ class Handler(BaseHTTPRequestHandler):
                             dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
                             import xml.etree.ElementTree as ET
                             root = ET.fromstring(dom_xml)
+                            devices = root.find('.//devices')
                             
-                            for video in root.findall('.//devices/video'):
-                                model = video.find('model')
-                                if model is not None and model.get('type') == video_type:
-                                    d.detachDeviceFlags(ET.tostring(video, encoding='unicode'), libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-                                    msg += f"<div class='inline-note'>{video_type.upper()} video adapter removed successfully.</div>"
-                                    break
+                            if devices is not None:
+                                # Find and remove video element
+                                for video in devices.findall('video'):
+                                    model = video.find('model')
+                                    if model is not None and model.get('type') == video_type:
+                                        devices.remove(video)
+                                        
+                                        # Redefine domain with updated XML
+                                        new_xml = ET.tostring(root, encoding='unicode')
+                                        d.undefine()
+                                        lv.conn.defineXML(new_xml)
+                                        msg += f"<div class='inline-note'>{video_type.upper()} video adapter removed successfully.</div>"
+                                        break
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to remove video adapter: {html.escape(str(e))}</div>"
                 
@@ -8746,54 +8788,54 @@ class Handler(BaseHTTPRequestHandler):
                 prev=VM_PREV.get(d.name())
                 cpu_pct=0.0; rd_kbps=0.0; wr_kbps=0.0
                 
-                # Get CPU stats using domstats
-                try:
-                    stats = d.getCPUStats(True)  # Get per-vcpu stats
-                    total_cpu_time = 0
-                    if stats:
-                        for cpu_stat in stats:
-                            if 'cpu_time' in cpu_stat:
-                                total_cpu_time += cpu_stat['cpu_time']
-                    
-                    if prev and total_cpu_time > 0:
-                        dt = now - prev['ts']
-                        if dt > 0:
-                            # Calculate CPU percentage based on allocated vCPUs
-                            cpu_time_diff = total_cpu_time - prev.get('total_cpu_time', total_cpu_time)
-                            # Convert nanoseconds to seconds and calculate percentage
-                            cpu_pct = (cpu_time_diff / 1e9) / dt / vcpus * 100
-                            cpu_pct = max(0, min(100, cpu_pct))  # Clamp between 0-100%
-                    
-                    # Store for next calculation
-                    if d.name() not in VM_PREV:
-                        VM_PREV[d.name()] = {}
-                    VM_PREV[d.name()]['total_cpu_time'] = total_cpu_time
-                except Exception:
-                    # Fallback to old method
-                    if prev:
-                        dt=now-prev['ts']
-                        if dt>0:
-                            cpu_pct=((cpu_time-prev['cpu_time_ns'])/1e9)/dt*100
-                # block stats aggregate
+                # Calculate CPU percentage properly
+                if prev:
+                    dt = now - prev['ts']
+                    if dt > 0:
+                        # CPU time difference in nanoseconds
+                        cpu_time_diff = cpu_time - prev['cpu_time_ns']
+                        # Convert to seconds and calculate percentage of allocated CPU capacity
+                        # cpu_time is cumulative CPU time used by all vCPUs
+                        # dt * vcpus * 1e9 = total possible CPU nanoseconds for all vCPUs in time period
+                        cpu_pct = (cpu_time_diff / (dt * vcpus * 1e9)) * 100
+                        cpu_pct = max(0, min(100, cpu_pct))  # Clamp between 0-100%
+                # Get disk I/O stats using iotop-like method for VM's virtual disks
                 rd_bytes=0; wr_bytes=0
                 try:
-                    import xml.etree.ElementTree as ET
-                    root=ET.fromstring(d.XMLDesc(0))
-                    for disk in root.findall('.//devices/disk'):
-                        src=disk.find('source'); tgt=disk.find('target')
-                        if src is not None and tgt is not None:
-                            try:
-                                st=d.blockStats(tgt.get('dev'))
-                                # returns tuple: rd_req, rd_bytes, wr_req, wr_bytes, errs
-                                rd_bytes+=st[1]; wr_bytes+=st[3]
-                            except Exception: pass
-                except Exception: pass
+                    # Get QEMU process PID for this VM
+                    vm_pid = None
+                    try:
+                        import subprocess
+                        # Find QEMU process for this VM
+                        result = subprocess.run(['pgrep', '-f', f'qemu.*{d.name()}'], 
+                                              capture_output=True, text=True, timeout=2)
+                        if result.returncode == 0 and result.stdout.strip():
+                            vm_pid = int(result.stdout.strip().split('\n')[0])
+                    except Exception:
+                        pass
+                    
+                    if vm_pid:
+                        # Read /proc/[pid]/io for actual disk I/O (like iotop)
+                        try:
+                            with open(f'/proc/{vm_pid}/io', 'r') as f:
+                                for line in f:
+                                    if line.startswith('read_bytes:'):
+                                        rd_bytes = int(line.split(':')[1].strip())
+                                    elif line.startswith('write_bytes:'):
+                                        wr_bytes = int(line.split(':')[1].strip())
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                
+                # Calculate I/O rates
                 if prev:
-                    dt=now-prev['ts']
-                    if dt>0:
-                        cpu_pct=((cpu_time-prev['cpu_time_ns'])/1e9)/dt*100
-                        dr=rd_bytes-prev.get('rd_bytes',rd_bytes); dw=wr_bytes-prev.get('wr_bytes',wr_bytes)
-                        rd_kbps=dr/1024/dt; wr_kbps=dw/1024/dt
+                    dt = now - prev['ts']
+                    if dt > 0:
+                        dr = rd_bytes - prev.get('rd_bytes', rd_bytes)
+                        dw = wr_bytes - prev.get('wr_bytes', wr_bytes)
+                        rd_kbps = dr / 1024 / dt
+                        wr_kbps = dw / 1024 / dt
                 VM_PREV[d.name()]={'cpu_time_ns':cpu_time,'ts':now,'rd_bytes':rd_bytes,'wr_bytes':wr_bytes}
                 mem_pct=(mem_used/maxMem*100) if maxMem>0 else 0
                 # Skip storage calculation for performance - dashboard uses server-rendered values
