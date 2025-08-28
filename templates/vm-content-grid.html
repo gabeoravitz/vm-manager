@@ -1,0 +1,94 @@
+<div class='vm-content-grid' style='display: grid; grid-template-columns: 1fr; gap: 24px;'>
+    
+    <!-- CPU & Memory Configuration -->
+    <div class='config-section'>
+        <div class='card'>
+            <h3 style='margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 20px; border-bottom: 2px solid var(--border); padding-bottom: 12px;'>
+                <span>⚡</span> CPU & Memory Configuration
+            </h3>
+            {cpu_mem_form}
+        </div>
+    </div>
+    
+    <!-- Storage Management & Console -->
+    <div class='storage-console-section' style='display: grid; grid-template-columns: 2fr 1fr; gap: 24px;'>
+        
+        <!-- Virtual Disks -->
+        <div class='card'>
+            <!-- Storage Devices -->
+            <div style='margin-bottom: 16px;'>
+                {storage_list}
+            </div>
+            
+            <!-- Add Storage Devices -->
+            <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'>
+                <!-- Add New Disk -->
+                {add_disk_form}
+                
+                <!-- Add CD/DVD Drive -->
+                {add_cdrom_form}
+            </div>
+        </div>
+        
+        <!-- Console Preview -->
+        <div class='card'>
+            <h3 style='margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 20px; border-bottom: 2px solid var(--border); padding-bottom: 12px;'>
+                <span>🖥️</span> Console
+            </h3>
+            {console_html}
+        </div>
+    </div>
+    
+    <!-- Snapshot Management -->
+    <div class='snapshot-section'>
+        <div class='card'>
+            <h3 style='margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 20px; border-bottom: 2px solid var(--border); padding-bottom: 12px;'>
+                <span>📸</span> Snapshots
+            </h3>
+            
+            <div style='margin-bottom: 20px;'>
+                {snapshot_list_html}
+            </div>
+            
+            <!-- Create Snapshot Form -->
+            <div style='background: var(--bg-secondary); padding: 16px; border-radius: 8px; border: 1px solid var(--border);'>
+                <h4 style='margin: 0 0 12px 0; color: var(--fg); font-size: 16px;'>📸 Create New Snapshot</h4>
+                <form method='post' style='display: grid; grid-template-columns: 2fr 3fr 1fr; gap: 12px; align-items: end;'>
+                    <input type='hidden' name='create_snapshot' value='1'>
+                    <div>
+                        <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>Snapshot Name</label>
+                        <input name='snapshot_name' type='text' placeholder='snapshot-{current_time}' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg);' required>
+                    </div>
+                    <div>
+                        <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>Description (Optional)</label>
+                        <input name='snapshot_desc' type='text' placeholder='Snapshot description...' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--card); color: var(--fg);'>
+                    </div>
+                    <button type='submit' class='button primary' style='padding: 8px 16px; white-space: nowrap;'>📸 Create</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Network Interfaces -->
+    <div class='network-section'>
+        <div class='card'>
+            <h3 style='margin: 0 0 20px 0; display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 20px; border-bottom: 2px solid var(--border); padding-bottom: 12px;'>
+                <span>🌐</span> Network Interfaces
+            </h3>
+            
+            <div style='margin-bottom: 20px;'>
+                <h4 style='margin: 0 0 12px 0; color: var(--fg); font-size: 16px;'>🔗 Current Interfaces</h4>
+                <div>
+                    {nic_items_html}
+                </div>
+            </div>
+            
+            {nic_add_form}
+        </div>
+    </div>
+    
+    {pci_section}
+    
+    {graphics_section}
+    
+</div>
