@@ -5141,18 +5141,29 @@ class Handler(BaseHTTPRequestHandler):
                             devices = root.find('.//devices')
                             
                             if devices is not None:
-                                # Create new graphics element
-                                new_graphics = ET.Element('graphics')
-                                new_graphics.set('type', gfx_type)
-                                new_graphics.set('port', '-1')
-                                new_graphics.set('listen', '127.0.0.1')
-                                devices.append(new_graphics)
+                                # Create new graphics element XML
+                                graphics_xml = f"<graphics type='{gfx_type}' port='-1' listen='127.0.0.1'/>"
                                 
-                                # Redefine domain with updated XML
-                                new_xml = ET.tostring(root, encoding='unicode')
-                                d.undefine()
-                                lv.conn.defineXML(new_xml)
-                                msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter added successfully.</div>"
+                                # Use attachDeviceFlags with CONFIG flag for persistent changes
+                                try:
+                                    d.attachDeviceFlags(graphics_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+                                    msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter added successfully.</div>"
+                                except Exception:
+                                    # Fallback: modify XML and redefine (avoiding NVRAM issues)
+                                    new_graphics = ET.Element('graphics')
+                                    new_graphics.set('type', gfx_type)
+                                    new_graphics.set('port', '-1')
+                                    new_graphics.set('listen', '127.0.0.1')
+                                    devices.append(new_graphics)
+                                    
+                                    new_xml = ET.tostring(root, encoding='unicode')
+                                    # Try to preserve NVRAM by using VIR_DOMAIN_UNDEFINE_NVRAM flag
+                                    try:
+                                        d.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
+                                    except:
+                                        d.undefine()
+                                    lv.conn.defineXML(new_xml)
+                                    msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter added successfully.</div>"
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to add graphics adapter: {html.escape(str(e))}</div>"
                 
@@ -5169,17 +5180,37 @@ class Handler(BaseHTTPRequestHandler):
                             devices = root.find('.//devices')
                             
                             if devices is not None:
-                                # Find and remove graphics element
+                                # Find and remove graphics element using detachDeviceFlags
                                 for graphics in devices.findall('graphics'):
                                     if graphics.get('type') == gfx_type:
-                                        devices.remove(graphics)
+                                        graphics_xml = ET.tostring(graphics, encoding='unicode')
                                         
-                                        # Redefine domain with updated XML
-                                        new_xml = ET.tostring(root, encoding='unicode')
-                                        d.undefine()
-                                        lv.conn.defineXML(new_xml)
-                                        msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter removed successfully.</div>"
-                                        break
+                                        # Use detachDeviceFlags with CONFIG flag for persistent changes
+                                        try:
+                                            d.detachDeviceFlags(graphics_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+                                            msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter removed successfully.</div>"
+                                            break
+                                        except Exception:
+                                            # Fallback: modify XML without undefining to avoid NVRAM issues
+                                            devices.remove(graphics)
+                                            new_xml = ET.tostring(root, encoding='unicode')
+                                            
+                                            # Use virsh define directly to update config without touching NVRAM
+                                            import tempfile
+                                            import subprocess
+                                            with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+                                                f.write(new_xml)
+                                                temp_xml = f.name
+                                            
+                                            try:
+                                                subprocess.run(['virsh', 'define', temp_xml], check=True, capture_output=True)
+                                                msg += f"<div class='inline-note'>{gfx_type.upper()} graphics adapter removed successfully.</div>"
+                                            except subprocess.CalledProcessError:
+                                                msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
+                                            finally:
+                                                import os
+                                                os.unlink(temp_xml)
+                                            break
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to remove graphics adapter: {html.escape(str(e))}</div>"
                 
@@ -5198,18 +5229,37 @@ class Handler(BaseHTTPRequestHandler):
                             devices = root.find('.//devices')
                             
                             if devices is not None:
-                                # Create new video element
-                                new_video = ET.Element('video')
-                                model = ET.SubElement(new_video, 'model')
-                                model.set('type', video_type)
-                                model.set('vram', video_vram)
-                                devices.append(new_video)
+                                # Create video element XML
+                                video_xml = f"<video><model type='{video_type}' vram='{video_vram}'/></video>"
                                 
-                                # Redefine domain with updated XML
-                                new_xml = ET.tostring(root, encoding='unicode')
-                                d.undefine()
-                                lv.conn.defineXML(new_xml)
-                                msg += f"<div class='inline-note'>{video_type.upper()} video adapter added successfully.</div>"
+                                # Use attachDeviceFlags with CONFIG flag for persistent changes
+                                try:
+                                    d.attachDeviceFlags(video_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+                                    msg += f"<div class='inline-note'>{video_type.upper()} video adapter added successfully.</div>"
+                                except Exception:
+                                    # Fallback: use virsh define to avoid NVRAM issues
+                                    new_video = ET.Element('video')
+                                    model = ET.SubElement(new_video, 'model')
+                                    model.set('type', video_type)
+                                    model.set('vram', video_vram)
+                                    devices.append(new_video)
+                                    
+                                    new_xml = ET.tostring(root, encoding='unicode')
+                                    
+                                    import tempfile
+                                    import subprocess
+                                    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+                                        f.write(new_xml)
+                                        temp_xml = f.name
+                                    
+                                    try:
+                                        subprocess.run(['virsh', 'define', temp_xml], check=True, capture_output=True)
+                                        msg += f"<div class='inline-note'>{video_type.upper()} video adapter added successfully.</div>"
+                                    except subprocess.CalledProcessError:
+                                        msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
+                                    finally:
+                                        import os
+                                        os.unlink(temp_xml)
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to add video adapter: {html.escape(str(e))}</div>"
                 
@@ -5226,18 +5276,37 @@ class Handler(BaseHTTPRequestHandler):
                             devices = root.find('.//devices')
                             
                             if devices is not None:
-                                # Find and remove video element
+                                # Find and remove video element using detachDeviceFlags
                                 for video in devices.findall('video'):
                                     model = video.find('model')
                                     if model is not None and model.get('type') == video_type:
-                                        devices.remove(video)
+                                        video_xml = ET.tostring(video, encoding='unicode')
                                         
-                                        # Redefine domain with updated XML
-                                        new_xml = ET.tostring(root, encoding='unicode')
-                                        d.undefine()
-                                        lv.conn.defineXML(new_xml)
-                                        msg += f"<div class='inline-note'>{video_type.upper()} video adapter removed successfully.</div>"
-                                        break
+                                        # Use detachDeviceFlags with CONFIG flag for persistent changes
+                                        try:
+                                            d.detachDeviceFlags(video_xml, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
+                                            msg += f"<div class='inline-note'>{video_type.upper()} video adapter removed successfully.</div>"
+                                            break
+                                        except Exception:
+                                            # Fallback: use virsh define to avoid NVRAM issues
+                                            devices.remove(video)
+                                            new_xml = ET.tostring(root, encoding='unicode')
+                                            
+                                            import tempfile
+                                            import subprocess
+                                            with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+                                                f.write(new_xml)
+                                                temp_xml = f.name
+                                            
+                                            try:
+                                                subprocess.run(['virsh', 'define', temp_xml], check=True, capture_output=True)
+                                                msg += f"<div class='inline-note'>{video_type.upper()} video adapter removed successfully.</div>"
+                                            except subprocess.CalledProcessError:
+                                                msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
+                                            finally:
+                                                import os
+                                                os.unlink(temp_xml)
+                                            break
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to remove video adapter: {html.escape(str(e))}</div>"
                 
