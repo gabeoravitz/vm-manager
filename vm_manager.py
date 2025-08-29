@@ -5754,60 +5754,60 @@ class Handler(BaseHTTPRequestHandler):
             actions.append(f"<button type='button' class='button' onclick=\"location.href='/?domain={html.escape(name)}&op=reboot'\">🔄 Reboot</button>")
             actions.append(f"<button type='button' class='button secondary' onclick=\"location.href='/?domain={html.escape(name)}&op={'noautostart' if auto else 'autostart'}'\">🔧 {'No Auto' if auto else 'Autostart'}</button>")
         cpu_mem_form = f"""
-        <div style='background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 16px;'>
-            <form method='post' style='display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;'>
+        <div style='background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 16px; margin-bottom: 12px;'>
+            <form method='post' style='display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;'>
                 <input type='hidden' name='update_cpu_mem' value='1'>
                 
                 <!-- Left Column -->
-                <div style='display: flex; flex-direction: column; gap: 20px;'>
+                <div style='display: flex; flex-direction: column; gap: 14px;'>
                     <div class='form-group'>
-                        <label style='display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary);'>OS Type</label>
-                        <select name='os_type' class='enh' style='width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); font-size: 14px;'>
+                        <label style='display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary);'>OS Type</label>
+                        <select name='os_type' class='enh' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
                             <option value='linux'{"selected" if current_os_type == 'linux' else ''}>Linux</option>
                             <option value='windows'{"selected" if current_os_type == 'windows' else ''}>Windows</option>
                         </select>
                     </div>
 
                     <div class='form-group'>
-                        <label style='display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary);'>CPU Topology</label>
-                        <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 8px;'>
+                        <label style='display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary);'>CPU Topology</label>
+                        <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 6px;'>
                             <div>
-                                <label style='display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary);'>Sockets</label>
-                                <input name='cpu_sockets' type='number' value='{cpu_sockets}' min='1' style='width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 14px; text-align: center;'>
+                                <label style='display: block; margin-bottom: 3px; font-size: 11px; color: var(--text-secondary);'>Sockets</label>
+                                <input name='cpu_sockets' type='number' value='{cpu_sockets}' min='1' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 13px; text-align: center;'>
                             </div>
                             <div>
-                                <label style='display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary);'>Cores</label>
-                                <input name='cpu_cores' type='number' value='{cpu_cores}' min='1' style='width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 14px; text-align: center;'>
+                                <label style='display: block; margin-bottom: 3px; font-size: 11px; color: var(--text-secondary);'>Cores</label>
+                                <input name='cpu_cores' type='number' value='{cpu_cores}' min='1' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 13px; text-align: center;'>
                             </div>
                             <div>
-                                <label style='display: block; margin-bottom: 4px; font-size: 12px; color: var(--text-secondary);'>Threads</label>
-                                <input name='cpu_threads' type='number' value='{cpu_threads}' min='1' style='width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 14px; text-align: center;'>
+                                <label style='display: block; margin-bottom: 3px; font-size: 11px; color: var(--text-secondary);'>Threads</label>
+                                <input name='cpu_threads' type='number' value='{cpu_threads}' min='1' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 13px; text-align: center;'>
                             </div>
                         </div>
-                        <div style='display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border);'>
-                            <span style='font-size: 12px; color: var(--text-secondary);'>Total vCPUs:</span>
-                            <span style='font-size: 14px; font-weight: 600; color: var(--accent);'>{cpu_sockets * cpu_cores * cpu_threads}</span>
+                        <div style='display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border);'>
+                            <span style='font-size: 11px; color: var(--text-secondary);'>Total vCPUs:</span>
+                            <span style='font-size: 13px; font-weight: 600; color: var(--accent);'>{cpu_sockets * cpu_cores * cpu_threads}</span>
                         </div>
                     </div>
 
                     <div class='form-group'>
-                        <label style='display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary);'>Memory</label>
-                        <div style='display: flex; align-items: center; gap: 12px; margin-bottom: 8px;'>
-                            <input name='memory_gb' type='number' value='{int(mem_display/1024)}' min='{max(1, int(mem_display/1024))}' step='0.5' style='flex: 1; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); font-size: 14px;'>
-                            <span style='font-size: 14px; color: var(--text-secondary); min-width: 30px;'>GiB</span>
+                        <label style='display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary);'>Memory</label>
+                        <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 6px;'>
+                            <input name='memory_gb' type='number' value='{int(mem_display/1024)}' min='{max(1, int(mem_display/1024))}' step='0.5' style='flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
+                            <span style='font-size: 13px; color: var(--text-secondary); min-width: 25px;'>GiB</span>
                         </div>
-                        <div style='display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border);'>
-                            <span style='font-size: 12px; color: var(--text-secondary);'>Current:</span>
-                            <span style='font-size: 14px; font-weight: 600; color: var(--accent);'>{mem_display} MiB</span>
+                        <div style='display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border);'>
+                            <span style='font-size: 11px; color: var(--text-secondary);'>Current:</span>
+                            <span style='font-size: 13px; font-weight: 600; color: var(--accent);'>{mem_display} MiB</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Right Column -->
-                <div style='display: flex; flex-direction: column; gap: 20px;'>
+                <div style='display: flex; flex-direction: column; gap: 14px;'>
                     <div class='form-group'>
-                        <label style='display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary);'>CPU Type</label>
-                        <select name='cpu_mode' class='enh' id='vm_cpu_mode' style='width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); font-size: 14px;'>
+                        <label style='display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary);'>CPU Type</label>
+                        <select name='cpu_mode' class='enh' id='vm_cpu_mode' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
                             <option value='host-model'{"selected" if current_cpu_mode == 'host-model' else ''}>Host Model</option>
                             <option value='host-passthrough'{"selected" if current_cpu_mode == 'host-passthrough' else ''}>Host Passthrough</option>
                             <option value='custom'{"selected" if current_cpu_mode == 'custom' else ''}>Custom</option>
@@ -5820,12 +5820,12 @@ class Handler(BaseHTTPRequestHandler):
                     </div>
 
                     <div class='form-group' id='vm_custom_cpu_model' style='{'display: block' if current_cpu_mode == 'custom' else 'display: none'}'>
-                        <label style='display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary);'>CPU Model</label>
-                        <input name='cpu_model' value='{current_cpu_model}' placeholder='qemu64, core2duo, etc.' style='width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); font-size: 14px;'>
+                        <label style='display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-primary);'>CPU Model</label>
+                        <input name='cpu_model' value='{current_cpu_model}' placeholder='qemu64, core2duo, etc.' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
                     </div>
 
                     <div style='margin-top: auto; display: flex; justify-content: flex-end;'>
-                        <button type='submit' class='button primary' style='padding: 12px 24px; font-size: 14px; font-weight: 500;'>
+                        <button type='submit' class='button primary' style='padding: 8px 16px; font-size: 13px; font-weight: 500;'>
                             ⚡ Apply Changes
                         </button>
                     </div>
