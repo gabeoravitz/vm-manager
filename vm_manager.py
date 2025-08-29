@@ -4349,11 +4349,11 @@ class Handler(BaseHTTPRequestHandler):
                         if new_cpu_mode == 'host-passthrough':
                             cpu_replacement = f"<cpu mode='host-passthrough' check='none' migratable='on'><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
                         elif new_cpu_mode == 'host-model':
-                            cpu_replacement = f"<cpu mode='host-model' check='none' migratable='on'><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
+                            cpu_replacement = f"<cpu mode='host-model' check='none'><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
                         elif new_cpu_mode == 'custom' and new_cpu_model:
-                            cpu_replacement = f"<cpu mode='custom' match='exact' check='none' migratable='on'><model fallback='allow'>{html.escape(new_cpu_model)}</model><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
+                            cpu_replacement = f"<cpu mode='custom' match='exact' check='none'><model fallback='allow'>{html.escape(new_cpu_model)}</model><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
                         else:
-                            cpu_replacement = f"<cpu mode='host-model' check='none' migratable='on'><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
+                            cpu_replacement = f"<cpu mode='host-model' check='none'><topology sockets='{new_sockets}' cores='{new_cores}' threads='{new_threads}'/></cpu>"
                         
                         xml_cfg = re.sub(r'<cpu.*?</cpu>', cpu_replacement, xml_cfg, flags=re.DOTALL)
                         if '<cpu' not in xml_cfg:
