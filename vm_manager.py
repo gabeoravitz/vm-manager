@@ -5754,53 +5754,54 @@ class Handler(BaseHTTPRequestHandler):
             actions.append(f"<button type='button' class='button' onclick=\"location.href='/?domain={html.escape(name)}&op=reboot'\">🔄 Reboot</button>")
             actions.append(f"<button type='button' class='button secondary' onclick=\"location.href='/?domain={html.escape(name)}&op={'noautostart' if auto else 'autostart'}'\">🔧 {'No Auto' if auto else 'Autostart'}</button>")
         cpu_mem_form = f"""
-        <form method='post' style='display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; align-items: end;'>
+        <form method='post' style='display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; align-items: end;'>
             <input type='hidden' name='update_cpu_mem' value='1'>
-            
+
             <div class='form-group'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>OS Type</label>
-                <select name='os_type' class='enh' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
-                    <option value='linux'{'selected' if current_os_type == 'linux' else ''}>Linux</option>
-                    <option value='windows'{'selected' if current_os_type == 'windows' else ''}>Windows</option>
+                <label style='display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary);'>OS Type</label>
+                <select name='os_type' class='enh' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);'>
+                    <option value='linux'{"selected" if current_os_type == 'linux' else ''}>Linux</option>
+                    <option value='windows'{"selected" if current_os_type == 'windows' else ''}>Windows</option>
                 </select>
             </div>
-            
+
             <div class='form-group'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>CPU Topology</label>
-                <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;'>
-                    <input name='cpu_sockets' type='number' value='{cpu_sockets}' min='1' placeholder='Sockets' style='padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 12px;'>
-                    <input name='cpu_cores' type='number' value='{cpu_cores}' min='1' placeholder='Cores' style='padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 12px;'>
-                    <input name='cpu_threads' type='number' value='{cpu_threads}' min='1' placeholder='Threads' style='padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); font-size: 12px;'>
+                <label style='display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary);'>CPU Topology</label>
+                <div style='display: grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap: 6px;'>
+                    <input name='cpu_sockets' type='number' value='{cpu_sockets}' min='1' placeholder='Sockets' style='padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
+                    <input name='cpu_cores' type='number' value='{cpu_cores}' min='1' placeholder='Cores' style='padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
+                    <input name='cpu_threads' type='number' value='{cpu_threads}' min='1' placeholder='Threads' style='padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); font-size: 13px;'>
                 </div>
-                <small class='form-text' style='font-size: 0.75em; color: var(--text-muted);'>Sockets × Cores × Threads = vCPUs</small>
+                <small class='form-text' style='display:block; margin-top:4px; font-size: 12px; color: var(--text-muted);'>Sockets × Cores × Threads = vCPUs</small>
             </div>
-            
+
             <div class='form-group'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>Memory (GiB)</label>
-                <input name='memory_gb' type='number' value='{int(mem_display/1024)}' min='{max(1, int(mem_display/1024))}' step='0.5' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
-                <small class='form-text' style='font-size: 0.8em; color: var(--text-muted);'>{mem_display} MiB</small>
+                <label style='display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary);'>Memory (GiB)</label>
+                <input name='memory_gb' type='number' value='{int(mem_display/1024)}' min='{max(1, int(mem_display/1024))}' step='0.5' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);'>
+                <small class='form-text' style='display:block; margin-top:4px; font-size: 12px; color: var(--text-muted);'>{mem_display} MiB</small>
             </div>
-            
+
             <div class='form-group'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>CPU Type</label>
-                <select name='cpu_mode' class='enh' id='vm_cpu_mode' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
-                    <option value='host-model'{'selected' if current_cpu_mode == 'host-model' else ''}>Host Model</option>
-                    <option value='host-passthrough'{'selected' if current_cpu_mode == 'host-passthrough' else ''}>Host Passthrough</option>
-                    <option value='custom'{'selected' if current_cpu_mode == 'custom' else ''}>Custom</option>
-                    {''.join(f"<option value='{html.escape(value)}'{'selected' if current_cpu_mode == value else ''}>{html.escape(label)}</option>" for value, label in self.get_qemu_cpu_models() if value not in ['host-model', 'host-passthrough'])}
+                <label style='display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary);'>CPU Type</label>
+                <select name='cpu_mode' class='enh' id='vm_cpu_mode' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);'>
+                    <option value='host-model'{"selected" if current_cpu_mode == 'host-model' else ''}>Host Model</option>
+                    <option value='host-passthrough'{"selected" if current_cpu_mode == 'host-passthrough' else ''}>Host Passthrough</option>
+                    <option value='custom'{"selected" if current_cpu_mode == 'custom' else ''}>Custom</option>
+                    """ + ''.join(
+                        f"<option value='{html.escape(value)}'{'selected' if current_cpu_mode == value else ''}>{html.escape(label)}</option>"
+                        for value, label in self.get_qemu_cpu_models()
+                        if value not in ['host-model', 'host-passthrough']
+                    ) + f"""
                 </select>
             </div>
-            
-            <div class='form-group' id='vm_custom_cpu_model' style='{'display: block' if current_cpu_mode == 'custom' else 'display: none'}'>
-                <label style='display: block; margin-bottom: 4px; font-size: 14px; color: var(--text-secondary);'>CPU Model</label>
-                <input name='cpu_model' value='{current_cpu_model}' placeholder='qemu64, core2duo, etc.' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary);'>
+
+            <div class='form-group' id='vm_custom_cpu_model' style='{ 'display: block' if current_cpu_mode == 'custom' else 'display: none' }'>
+                <label style='display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary);'>CPU Model</label>
+                <input name='cpu_model' value='{current_cpu_model}' placeholder='qemu64, core2duo, etc.' style='width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);'>
             </div>
-            
-            
-            <div class='form-group'>
-                <button type='submit' class='button primary' style='width: 100%; padding: 8px 16px;'>
-                    ⚡ Apply Changes
-                </button>
+
+            <div class='form-group' style='grid-column: 1 / -1; display: flex; justify-content: flex-end;'>
+                <button type='submit' class='button primary' style='padding: 8px 16px;'>⚡ Apply Changes</button>
             </div>
         </form>
         <script>
@@ -8413,7 +8414,7 @@ class Handler(BaseHTTPRequestHandler):
         for s in md_status.get('devices',[]):
             progress_display = ''
             if s.get('state', '') == 'active' and s.get('percent', 0) < 100:
-                progress_display = f"<div style='display:flex;align-items:center;gap:8px'><div style='background:#222;border:1px solid #333;height:25px;position:relative;border-radius:4px;overflow:hidden;width:200px'><div style='position:absolute;left:0;top:0;bottom:0;width:{s["percent"]}%;background:var(--accent);transition:width 0.3s'></div></div><div style='font-size:14px;min-width:40px'>{s["percent"]}%</div></div>"
+                progress_display = f"<div style='display:flex;align-items:center;gap:8px'><div style='background:#222;border:1px solid #333;height:25px;position:relative;border-radius:4px;overflow:hidden;width:200px'><div style='position:absolute;left:0;top:0;bottom:0;width:{s['percent']}%;background:var(--accent);transition:width 0.3s'></div></div><div style='font-size:14px;min-width:40px'>{s['percent']}%</div></div>"
             
             md_rows+=(
                 f"<tr id='md_{html.escape(s['name'])}'><td>{html.escape(s['name'])}</td><td style='min-width:160px'>{progress_display}</td><td class='state'>{html.escape(s.get('state',''))}</td><td class='eta'>{html.escape(s.get('eta',''))}</td><td class='speed'>{html.escape(s.get('speed',''))}</td><td style='overflow:visible;position:relative'><select name='speed' class='enh'><option value='pause'>pause</option><option value='normal' selected>normal</option><option value='fast'>fast</option></select></td><td><button class='small danger' onclick=\"if(confirm('Delete RAID array {html.escape(s['name'])}? This will destroy all data!')) {{ fetch('/delete_array', {{ method: 'POST', headers: {{'Content-Type': 'application/x-www-form-urlencoded'}}, body: 'type=mdadm&name={html.escape(s['name'])}' }}).then(() => location.reload()); }}\">Delete</button></td></tr>"
