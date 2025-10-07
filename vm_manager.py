@@ -6583,27 +6583,24 @@ class Handler(BaseHTTPRequestHandler):
         # Create template options for disk creation (imported images + existing volumes)
         template_options = ""
         
-        # Add imported images from pool images/ subdirectories
-        try:
-            for pool in lv.list_pools():
-                if pool.isActive():
-                    try:
-                        import xml.etree.ElementTree as ET
-                        pool_xml = pool.XMLDesc()
-                        pool_root = ET.fromstring(pool_xml)
-                        pool_path = pool_root.findtext('.//target/path')
-                        if pool_path:
-                            images_dir = os.path.join(pool_path, 'images')
-                            if os.path.isdir(images_dir):
-                                for f in sorted(os.listdir(images_dir)):
-                                    if f.endswith('.qcow2'):
-                                        pool_name = pool.name()
-                                        template_options += f"<option value='image:{html.escape(pool_name)}:{html.escape(f)}'>[Image] {html.escape(f)}</option>"
-                                        logger.debug(f"Added image option: {f} from pool {pool_name}")
-                    except Exception as e:
-                        logger.debug(f"Error scanning pool for images: {e}")
-        except Exception as e:
-            logger.debug(f"Error listing pools for images: {e}")
+        # Add imported images from pool images/ subdirectories (same logic as Images page)
+        for p in lv.list_pools():
+            try:
+                import xml.etree.ElementTree as ET
+                pxml = p.XMLDesc(0)
+                proot = ET.fromstring(pxml)
+                pool_path = proot.findtext('.//target/path') or ''
+                idir = os.path.join(pool_path, 'images')
+                
+                if os.path.isdir(idir):
+                    for f in sorted(os.listdir(idir)):
+                        # Only include qcow2 images for cloning (not ISOs or raw)
+                        if f.endswith('.qcow2'):
+                            pool_name = p.name()
+                            template_options += f"<option value='image:{html.escape(pool_name)}:{html.escape(f)}'>[Image] {html.escape(f)}</option>"
+                            logger.debug(f"Added image option: {f} from pool {pool_name}")
+            except Exception as e:
+                logger.debug(f"Error scanning pool {p.name()} for images: {e}")
         
         # Add existing disk volumes from libvirt pools (excluding images subdirectory files)
         try:
