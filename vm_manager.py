@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enhanced single-file libvirt VM manager with, backups, snapshots, security, and advanced features.
+"""Enhanced single-file libvirtd VM manager with, backups, snapshots, security, and advanced features.
 Supports snapshots, backups, enhanced networking, SSL, authentication, and more.
 All assets inline. Requires python3-libvirt, python3-cryptography (optional for SSL).
 """
