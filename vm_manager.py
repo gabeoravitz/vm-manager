@@ -2166,13 +2166,38 @@ class Handler(BaseHTTPRequestHandler):
         # Handle multipart form data (from FormData) vs URL-encoded data
         content_type = self.headers.get('Content-Type', '')
         if 'multipart/form-data' in content_type:
-            import cgi
-            import io
-            # Parse multipart form data
-            fp = io.BytesIO(raw)
-            pdict = {'boundary': content_type.split('boundary=')[1].encode()}
-            fields = cgi.parse_multipart(fp, pdict)
-            form = {k: [v.decode() if isinstance(v, bytes) else v for v in vals] for k, vals in fields.items()}
+            # Parse multipart form data using email.message (Python 3.13 compatible)
+            from email import message_from_bytes
+            from email.policy import default
+            
+            # Extract boundary from content-type
+            boundary = None
+            for param in content_type.split(';'):
+                if 'boundary=' in param:
+                    boundary = param.split('boundary=')[1].strip()
+                    break
+            
+            if boundary:
+                # Construct a proper MIME message
+                mime_data = b'Content-Type: ' + content_type.encode() + b'\r\n\r\n' + raw
+                msg = message_from_bytes(mime_data, policy=default)
+                
+                form = {}
+                for part in msg.iter_parts():
+                    # Get the field name from Content-Disposition header
+                    content_disposition = part.get('Content-Disposition', '')
+                    if 'name=' in content_disposition:
+                        field_name = content_disposition.split('name="')[1].split('"')[0]
+                        field_value = part.get_content()
+                        if isinstance(field_value, bytes):
+                            field_value = field_value.decode('utf-8', errors='replace')
+                        if field_name in form:
+                            form[field_name].append(field_value)
+                        else:
+                            form[field_name] = [field_value]
+            else:
+                # Fallback to URL-encoded parsing
+                form = urllib.parse.parse_qs(raw.decode())
         else:
             # Parse URL-encoded form data
             form=urllib.parse.parse_qs(raw.decode())
