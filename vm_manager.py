@@ -4469,10 +4469,36 @@ class Handler(BaseHTTPRequestHandler):
                             if size_gb < 1:
                                 raise ValueError("Disk size must be at least 1 GB")
                                 
+                            # Determine VM directory from existing disk paths
+                            vm_dir = None
+                            dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+                            import xml.etree.ElementTree as ET
+                            root = ET.fromstring(dom_xml)
+                            for disk in root.findall('.//devices/disk'):
+                                src = disk.find('source')
+                                if src is not None and 'file' in src.attrib:
+                                    disk_file = src.get('file')
+                                    vm_dir = os.path.dirname(disk_file)
+                                    break
+                            
+                            # If no existing disks, create VM directory in pool
+                            if not vm_dir:
+                                # Get the first pool or default pool
+                                pools = lv.list_pools()
+                                if pools:
+                                    pool = pools[0]
+                                    import xml.etree.ElementTree as ET
+                                    proot = ET.fromstring(pool.XMLDesc(0))
+                                    pool_path = proot.findtext('.//target/path') or '/var/lib/libvirt/images'
+                                    vm_dir = os.path.join(pool_path, name)
+                                    os.makedirs(vm_dir, exist_ok=True)
+                                else:
+                                    vm_dir = '/var/lib/libvirt/images'
+                            
                             # Generate unique disk name
                             import time
-                            disk_name = f"{name}-disk-{int(time.time())}.qcow2"
-                            disk_path = f"/var/lib/libvirt/images/{disk_name}"
+                            disk_name = f"disk-{int(time.time())}.qcow2"
+                            disk_path = os.path.join(vm_dir, disk_name)
                             
                             # Handle template/image copying if specified
                             if template_disk and template_disk.startswith('template:'):
@@ -6584,6 +6610,7 @@ class Handler(BaseHTTPRequestHandler):
         template_options = ""
         
         # Add imported images from pool images/ subdirectories (same logic as Images page)
+        logger.info(f"Scanning for imported images in {len(lv.list_pools())} pools")
         for p in lv.list_pools():
             try:
                 import xml.etree.ElementTree as ET
@@ -6591,16 +6618,24 @@ class Handler(BaseHTTPRequestHandler):
                 proot = ET.fromstring(pxml)
                 pool_path = proot.findtext('.//target/path') or ''
                 idir = os.path.join(pool_path, 'images')
+                logger.info(f"Checking pool '{p.name()}' images dir: {idir}")
                 
                 if os.path.isdir(idir):
-                    for f in sorted(os.listdir(idir)):
+                    files = os.listdir(idir)
+                    logger.info(f"Found {len(files)} files in {idir}")
+                    for f in sorted(files):
+                        logger.info(f"Checking file: {f}")
                         # Only include qcow2 images for cloning (not ISOs or raw)
                         if f.endswith('.qcow2'):
                             pool_name = p.name()
                             template_options += f"<option value='image:{html.escape(pool_name)}:{html.escape(f)}'>[Image] {html.escape(f)}</option>"
-                            logger.debug(f"Added image option: {f} from pool {pool_name}")
+                            logger.info(f"✓ Added image option: {f} from pool {pool_name}")
+                        else:
+                            logger.info(f"✗ Skipped {f} (not .qcow2)")
+                else:
+                    logger.info(f"Images directory does not exist: {idir}")
             except Exception as e:
-                logger.debug(f"Error scanning pool {p.name()} for images: {e}")
+                logger.error(f"Error scanning pool {p.name()} for images: {e}", exc_info=True)
         
         # Add existing disk volumes from libvirt pools (excluding images subdirectory files)
         try:
