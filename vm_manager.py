@@ -4517,7 +4517,7 @@ class Handler(BaseHTTPRequestHandler):
                                 else:
                                     raise FileNotFoundError(f"Template not found: {template_file}")
                             elif template_disk and template_disk.startswith('image:'):
-                                # Clone from imported image
+                                # Copy from imported image (same as VM creation)
                                 parts = template_disk.split(':', 2)
                                 if len(parts) == 3:
                                     pool_name = parts[1]
@@ -4530,14 +4530,16 @@ class Handler(BaseHTTPRequestHandler):
                                     if pool_path:
                                         image_path = os.path.join(pool_path, 'images', image_file)
                                         if os.path.exists(image_path):
-                                            # Clone the image
+                                            # Copy the image using reflink (same as VM creation)
                                             import subprocess
-                                            cmd = ['qemu-img', 'create', '-f', 'qcow2', '-b', image_path, '-F', 'qcow2', disk_path]
-                                            subprocess.run(cmd, check=True, capture_output=True, timeout=30)
-                                            # Resize if requested
-                                            if size_gb > 0:
-                                                resize_cmd = ['qemu-img', 'resize', disk_path, f'{size_gb}G']
-                                                subprocess.run(resize_cmd, check=True, capture_output=True, timeout=30)
+                                            try:
+                                                cmd = ['sudo', 'cp', '--reflink=always', image_path, disk_path]
+                                                subprocess.run(cmd, check=True, capture_output=True, timeout=30)
+                                                logger.info(f"Used reflink copy for {image_file}")
+                                            except subprocess.CalledProcessError:
+                                                # Fallback to regular copy if reflinks not supported
+                                                logger.info(f"Reflink not supported, using regular copy for {image_file}")
+                                                shutil.copy2(image_path, disk_path)
                                             attach_immediately = True
                                         else:
                                             raise FileNotFoundError(f"Image not found: {image_path}")
