@@ -6610,10 +6610,10 @@ class Handler(BaseHTTPRequestHandler):
         template_options = ""
         
         # Add imported images from pool images/ subdirectories (same logic as Images page)
+        import xml.etree.ElementTree as ET
         logger.info(f"Scanning for imported images in {len(lv.list_pools())} pools")
         for p in lv.list_pools():
             try:
-                import xml.etree.ElementTree as ET
                 pxml = p.XMLDesc(0)
                 proot = ET.fromstring(pxml)
                 pool_path = proot.findtext('.//target/path') or ''
