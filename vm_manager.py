@@ -6623,6 +6623,11 @@ class Handler(BaseHTTPRequestHandler):
         
         logger.debug(f"Total template_options length: {len(template_options)}")
         
+        # If no options found, add a debug option to verify the system is working
+        if not template_options:
+            template_options = "<option value='test'>DEBUG: No images found - check logs</option>"
+            logger.warning("No template options found! Check that you have imported images in pool/images/ directories")
+        
         # Configuration and Hardware sections in organized layout
         sections.append(f"""
         <div class='vm-content-grid' style='display: grid; grid-template-columns: 1fr; gap: 24px;'>
