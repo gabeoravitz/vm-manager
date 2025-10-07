@@ -4474,7 +4474,7 @@ class Handler(BaseHTTPRequestHandler):
                             disk_name = f"{name}-disk-{int(time.time())}.qcow2"
                             disk_path = f"/var/lib/libvirt/images/{disk_name}"
                             
-                            # Handle template copying if specified
+                            # Handle template/image copying if specified
                             if template_disk and template_disk.startswith('template:'):
                                 template_file = template_disk.split(':', 1)[1]
                                 template_path = os.path.join(TEMPLATES_DIR, template_file)
@@ -4490,12 +4490,49 @@ class Handler(BaseHTTPRequestHandler):
                                     attach_immediately = True
                                 else:
                                     raise FileNotFoundError(f"Template not found: {template_file}")
+                            elif template_disk and template_disk.startswith('image:'):
+                                # Clone from imported image
+                                parts = template_disk.split(':', 2)
+                                if len(parts) == 3:
+                                    pool_name = parts[1]
+                                    image_file = parts[2]
+                                    pool = lv.get_pool(pool_name)
+                                    import xml.etree.ElementTree as ET
+                                    pool_xml = pool.XMLDesc()
+                                    pool_root = ET.fromstring(pool_xml)
+                                    pool_path = pool_root.findtext('.//target/path')
+                                    if pool_path:
+                                        image_path = os.path.join(pool_path, 'images', image_file)
+                                        if os.path.exists(image_path):
+                                            # Clone the image
+                                            import subprocess
+                                            cmd = ['qemu-img', 'create', '-f', 'qcow2', '-b', image_path, '-F', 'qcow2', disk_path]
+                                            subprocess.run(cmd, check=True, capture_output=True, timeout=30)
+                                            # Resize if requested
+                                            if size_gb > 0:
+                                                resize_cmd = ['qemu-img', 'resize', disk_path, f'{size_gb}G']
+                                                subprocess.run(resize_cmd, check=True, capture_output=True, timeout=30)
+                                            attach_immediately = True
+                                        else:
+                                            raise FileNotFoundError(f"Image not found: {image_path}")
+                                    else:
+                                        raise RuntimeError(f"Could not determine pool path for {pool_name}")
+                                else:
+                                    raise ValueError("Invalid image selection format")
                             elif size_gb > 50:  # For large disks, create asynchronously
                                 def create_disk_async():
                                     try:
                                         import subprocess
                                         cmd = ['qemu-img', 'create', '-f', 'qcow2', disk_path, f'{size_gb}G']
                                         subprocess.run(cmd, check=True, capture_output=True)
+                                        # Set ownership to user running the script
+                                        try:
+                                            import pwd
+                                            uid = os.getuid()
+                                            user_info = pwd.getpwuid(uid)
+                                            subprocess.run(['chown', f"{user_info.pw_name}:{user_info.pw_name}", disk_path], check=False)
+                                        except Exception:
+                                            pass
                                         logger.info(f"Created disk {disk_path} ({size_gb}GB)")
                                     except Exception as e:
                                         logger.error(f"Failed to create disk {disk_path}: {e}")
@@ -4513,8 +4550,17 @@ class Handler(BaseHTTPRequestHandler):
                             
                             # Attach the disk immediately for sync operations
                             if attach_immediately:
+                                # Set ownership to user running the script
+                                try:
+                                    import pwd
+                                    uid = os.getuid()
+                                    user_info = pwd.getpwuid(uid)
+                                    subprocess.run(['chown', f"{user_info.pw_name}:{user_info.pw_name}", disk_path], check=False)
+                                except Exception as e:
+                                    logger.warning(f'Failed to chown {disk_path}: {e}')
+                                
                                 dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
-                                existing = re.findall(r"<target dev='(vd.)'", dom_xml)
+                                existing = re.findall(r"<target dev='(vd.)'" , dom_xml)
                                 tgt = lv.next_disk_target(existing)
                                 disk_xml = f"<disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='{disk_path}'/><target dev='{tgt}' bus='{bus_type}'/></disk>"
                                 
@@ -4526,7 +4572,12 @@ class Handler(BaseHTTPRequestHandler):
                                     flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
                                 
                                 d.attachDeviceFlags(disk_xml, flags)
-                                template_msg = f" from template {template_disk.split(':', 1)[1]}" if template_disk.startswith('template:') else ""
+                                if template_disk.startswith('template:'):
+                                    template_msg = f" from template {template_disk.split(':', 1)[1]}"
+                                elif template_disk.startswith('image:'):
+                                    template_msg = f" cloned from image {template_disk.split(':', 2)[2]}"
+                                else:
+                                    template_msg = ""
                                 msg += f"<div class='inline-note'>Created and attached {size_gb}GB disk{template_msg}: {disk_name}</div>"
                                 
                         except ValueError as e:
@@ -6222,7 +6273,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         # Prepend migration modal and script to the body or main template output
         storage_list = migration_modal + storage_list
-        # Create template options for disk creation (templates + existing images)
+        # Create template options for disk creation (templates + existing images + imported images)
         template_options = ""
         try:
             # Add template files
@@ -6230,6 +6281,28 @@ class Handler(BaseHTTPRequestHandler):
                 for f in os.listdir(TEMPLATES_DIR):
                     if f.endswith('.qcow2') or f.endswith('.img'):
                         template_options += f"<option value='template:{html.escape(f)}'>[Template] {html.escape(f)}</option>"
+        except Exception:
+            pass
+        
+        try:
+            # Add imported images from pool images/ subdirectories
+            for pool in lv.list_pools():
+                if pool.isActive():
+                    try:
+                        import xml.etree.ElementTree as ET
+                        pool_xml = pool.XMLDesc()
+                        pool_root = ET.fromstring(pool_xml)
+                        pool_path = pool_root.findtext('.//target/path')
+                        if pool_path:
+                            images_dir = os.path.join(pool_path, 'images')
+                            if os.path.isdir(images_dir):
+                                for f in os.listdir(images_dir):
+                                    if f.endswith('.qcow2'):
+                                        pool_name = pool.name()
+                                        full_path = os.path.join(images_dir, f)
+                                        template_options += f"<option value='image:{html.escape(pool_name)}:{html.escape(f)}'>[Image] {html.escape(f)}</option>"
+                    except Exception:
+                        pass
         except Exception:
             pass
         
