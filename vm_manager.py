@@ -4828,9 +4828,15 @@ class Handler(BaseHTTPRequestHandler):
                         dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
                         import xml.etree.ElementTree as ET
                         root = ET.fromstring(dom_xml)
+                        disk_path = None
                         for disk in root.findall('.//devices/disk'):
                             t = disk.find('target')
                             if t is not None and t.get('dev') == tgt:
+                                # Get disk file path before detaching
+                                src = disk.find('source')
+                                if src is not None and 'file' in src.attrib:
+                                    disk_path = src.get('file')
+                                
                                 # Use appropriate flags based on VM state
                                 state, _ = d.state()
                                 if state == libvirt.VIR_DOMAIN_RUNNING:
@@ -4838,7 +4844,16 @@ class Handler(BaseHTTPRequestHandler):
                                 else:
                                     flags = getattr(libvirt,'VIR_DOMAIN_AFFECT_CONFIG',0)
                                 d.detachDeviceFlags(ET.tostring(disk, encoding='unicode'), flags)
-                                msg += f"<div class='inline-note'>Disk {html.escape(tgt)} detached.</div>"
+                                
+                                # Delete the disk file
+                                if disk_path and os.path.exists(disk_path):
+                                    try:
+                                        os.remove(disk_path)
+                                        msg += f"<div class='inline-note'>Disk {html.escape(tgt)} detached and file deleted.</div>"
+                                    except Exception as e:
+                                        msg += f"<div class='inline-note'>Disk {html.escape(tgt)} detached but failed to delete file: {html.escape(str(e))}</div>"
+                                else:
+                                    msg += f"<div class='inline-note'>Disk {html.escape(tgt)} detached.</div>"
                                 break
                 if 'resize_disk' in form:
                     tgt = form.get('disk_target', [''])[0]
@@ -5130,8 +5145,6 @@ class Handler(BaseHTTPRequestHandler):
                 
                 if 'set_boot_device' in form:
                     boot_device = form.get('boot_device', [''])[0]
-                    # DEBUG: Log the boot device request
-                    print(f"DEBUG: Boot device request received - device: {boot_device}, VM: {name}")
                     if boot_device:
                         try:
                             # Check if VM is running
@@ -5140,59 +5153,47 @@ class Handler(BaseHTTPRequestHandler):
                                 msg += "<div class='inline-note error'>Cannot change boot device while VM is running. Please shut down the VM first.</div>"
                             else:
                                 # Get XML configuration for stopped domain
-                                try:
-                                    dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)  # Use basic flags for stopped domain
-                                except Exception as e2:
-                                    msg += f"<div class='inline-note error'>Failed to get XML config: {html.escape(str(e2))}</div>"
-                                    dom_xml = None
+                                dom_xml = d.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
+                                import xml.etree.ElementTree as ET
+                                root = ET.fromstring(dom_xml)
                                 
-                                if dom_xml:
-                                    import xml.etree.ElementTree as ET
-                                    root = ET.fromstring(dom_xml)
+                                # Remove any OS-level boot elements that might interfere
+                                os_elem = root.find('.//os')
+                                if os_elem is not None:
+                                    for boot_elem in os_elem.findall('boot'):
+                                        os_elem.remove(boot_elem)
+                                
+                                # Remove boot order from all device elements first
+                                for device in root.findall('.//devices/*'):
+                                    boot_elem = device.find('boot')
+                                    if boot_elem is not None:
+                                        device.remove(boot_elem)
+                                
+                                # Find the selected device and add boot order
+                                device_found = False
+                                # Check disks first
+                                for disk in root.findall('.//devices/disk'):
+                                    target = disk.find('target')
+                                    if target is not None and target.get('dev') == boot_device:
+                                        boot_elem = ET.SubElement(disk, 'boot')
+                                        boot_elem.set('order', '1')
+                                        device_found = True
+                                        break
+                                
+                                if device_found:
+                                    # Convert back to XML string
+                                    new_xml = ET.tostring(root, encoding='unicode')
                                     
-                                    # Remove any OS-level boot elements that might interfere
-                                    os_elem = root.find('.//os')
-                                    if os_elem is not None:
-                                        for boot_elem in os_elem.findall('boot'):
-                                            os_elem.remove(boot_elem)
+                                    # Redefine the domain
+                                    try:
+                                        d.undefine()
+                                    except:
+                                        pass
                                     
-                                    # Remove boot order from all device elements first
-                                    for device in root.findall('.//devices/*'):
-                                        boot_elem = device.find('boot')
-                                        if boot_elem is not None:
-                                            device.remove(boot_elem)
-                                    
-                                    # Find the selected disk and add boot order (EXACT same as debug script)
-                                    device_found = False
-                                    test_disks = root.findall('.//devices/disk')
-                                    for test_disk in test_disks:
-                                        test_target = test_disk.find('target')
-                                        if test_target is not None and test_target.get('dev') == boot_device:
-                                            boot_elem = ET.SubElement(test_disk, 'boot')
-                                            boot_elem.set('order', '1')
-                                            device_found = True
-                                            break
-                                    
-                                    if device_found:
-                                        # Convert back to XML string
-                                        new_xml = ET.tostring(root, encoding='unicode')
-                                        
-                                        # Use EXACT same approach as debug script
-                                        try:
-                                            # Try different undefine approaches (EXACT same as debug script)
-                                            try:
-                                                d.undefine()
-                                            except:
-                                                # If basic undefine fails, the domain might have snapshots or managed save
-                                                pass
-                                            
-                                            lv.conn.defineXML(new_xml)
-                                            print(f"DEBUG: Successfully applied boot device change to {boot_device}")
-                                            msg += f"<div class='inline-note success'>Boot device set to {html.escape(boot_device)}.</div>"
-                                        except Exception as e:
-                                            msg += f"<div class='inline-note error'>Failed to apply change: {html.escape(str(e))}</div>"
-                                    else:
-                                        msg += f"<div class='inline-note error'>Device {html.escape(boot_device)} not found among available devices.</div>"
+                                    lv.conn.defineXML(new_xml)
+                                    msg += f"<div class='inline-note success'>Boot device set to {html.escape(boot_device)}.</div>"
+                                else:
+                                    msg += f"<div class='inline-note error'>Device {html.escape(boot_device)} not found.</div>"
                         except Exception as e:
                             msg += f"<div class='inline-note error'>Failed to set boot device: {html.escape(str(e))}</div>"
                 
