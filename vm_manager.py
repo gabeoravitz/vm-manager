@@ -6653,12 +6653,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.debug(f"Error listing pools for volumes: {e}")
         
-        logger.debug(f"Total template_options length: {len(template_options)}")
-        
-        # If no options found, add a debug option to verify the system is working
-        if not template_options:
-            template_options = "<option value='test'>DEBUG: No images found - check logs</option>"
-            logger.warning("No template options found! Check that you have imported images in pool/images/ directories")
+        logger.info(f"Total template_options built: {len(template_options)} characters, {template_options.count('<option')} options")
         
         # Configuration and Hardware sections in organized layout
         sections.append(f"""
