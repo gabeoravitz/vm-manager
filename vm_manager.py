@@ -5331,7 +5331,6 @@ class Handler(BaseHTTPRequestHandler):
                                             except subprocess.CalledProcessError:
                                                 msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
                                             finally:
-                                                import os
                                                 os.unlink(temp_xml)
                                             break
                     except Exception as e:
@@ -5381,7 +5380,6 @@ class Handler(BaseHTTPRequestHandler):
                                     except subprocess.CalledProcessError:
                                         msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
                                     finally:
-                                        import os
                                         os.unlink(temp_xml)
                     except Exception as e:
                         msg += f"<div class='inline-note error'>Failed to add video adapter: {html.escape(str(e))}</div>"
@@ -5427,7 +5425,6 @@ class Handler(BaseHTTPRequestHandler):
                                             except subprocess.CalledProcessError:
                                                 msg += f"<div class='inline-note error'>Failed to update domain configuration.</div>"
                                             finally:
-                                                import os
                                                 os.unlink(temp_xml)
                                             break
                     except Exception as e:
