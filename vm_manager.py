@@ -6580,19 +6580,11 @@ class Handler(BaseHTTPRequestHandler):
         </div>
         """)
         
-        # Create template options for disk creation (templates + existing images + imported images)
+        # Create template options for disk creation (imported images + existing volumes)
         template_options = ""
-        try:
-            # Add template files
-            if os.path.exists(TEMPLATES_DIR):
-                for f in os.listdir(TEMPLATES_DIR):
-                    if f.endswith('.qcow2') or f.endswith('.img'):
-                        template_options += f"<option value='template:{html.escape(f)}'>[Template] {html.escape(f)}</option>"
-        except Exception:
-            pass
         
+        # Add imported images from pool images/ subdirectories
         try:
-            # Add imported images from pool images/ subdirectories
             for pool in lv.list_pools():
                 if pool.isActive():
                     try:
@@ -6603,27 +6595,33 @@ class Handler(BaseHTTPRequestHandler):
                         if pool_path:
                             images_dir = os.path.join(pool_path, 'images')
                             if os.path.isdir(images_dir):
-                                for f in os.listdir(images_dir):
+                                for f in sorted(os.listdir(images_dir)):
                                     if f.endswith('.qcow2'):
                                         pool_name = pool.name()
-                                        full_path = os.path.join(images_dir, f)
                                         template_options += f"<option value='image:{html.escape(pool_name)}:{html.escape(f)}'>[Image] {html.escape(f)}</option>"
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                                        logger.debug(f"Added image option: {f} from pool {pool_name}")
+                    except Exception as e:
+                        logger.debug(f"Error scanning pool for images: {e}")
+        except Exception as e:
+            logger.debug(f"Error listing pools for images: {e}")
         
+        # Add existing disk volumes from libvirt pools (excluding images subdirectory files)
         try:
-            # Add existing disk images from libvirt pools
             for pool in lv.list_pools():
                 if pool.isActive():
-                    for vol in pool.listAllVolumes():
-                        vol_name = vol.name()
-                        if vol_name.endswith(('.qcow2', '.img', '.raw')):
-                            pool_name = pool.name()
-                            template_options += f"<option value='existing:{html.escape(pool_name)}:{html.escape(vol_name)}'>[Existing] {html.escape(vol_name)}</option>"
-        except Exception:
-            pass
+                    try:
+                        for vol in pool.listAllVolumes():
+                            vol_name = vol.name()
+                            # Skip files that are in the images subdirectory (already listed above)
+                            if vol_name.endswith(('.qcow2', '.img', '.raw')) and not vol_name.startswith('images/'):
+                                pool_name = pool.name()
+                                template_options += f"<option value='existing:{html.escape(pool_name)}:{html.escape(vol_name)}'>[Existing] {html.escape(vol_name)}</option>"
+                    except Exception as e:
+                        logger.debug(f"Error listing volumes in pool: {e}")
+        except Exception as e:
+            logger.debug(f"Error listing pools for volumes: {e}")
+        
+        logger.debug(f"Total template_options length: {len(template_options)}")
         
         # Configuration and Hardware sections in organized layout
         sections.append(f"""
