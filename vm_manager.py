@@ -1295,6 +1295,52 @@ class Handler(BaseHTTPRequestHandler):
             logger.error(f"Error listing ISO images in pool {pool.name()}: {e}")
             return []
     
+    def get_network_bridges(self):
+        """Get all network bridge interfaces including NetworkManager bridges."""
+        bridges = []
+        try:
+            # Method 1: Check /sys/class/net for bridge interfaces
+            for iface in os.listdir('/sys/class/net'):
+                if os.path.isdir(os.path.join('/sys/class/net', iface, 'bridge')):
+                    bridges.append(iface)
+            
+            # Method 2: Check ip link for bridge devices (catches NetworkManager bridges)
+            try:
+                result = subprocess.run(['ip', 'link', 'show', 'type', 'bridge'], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        # Parse lines like: "4: bridge0: <BROADCAST,MULTICAST,UP,LOWER_UP> ..."
+                        if ':' in line and not line.startswith(' '):
+                            parts = line.split(':')
+                            if len(parts) >= 2:
+                                iface_name = parts[1].strip().split('@')[0]
+                                if iface_name and iface_name not in bridges:
+                                    bridges.append(iface_name)
+            except Exception:
+                pass
+            
+            # Method 3: Check brctl if available (legacy but still useful)
+            try:
+                result = subprocess.run(['brctl', 'show'], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines()[1:]:  # Skip header
+                        parts = line.split()
+                        if parts and not line.startswith('\t'):
+                            bridge_name = parts[0]
+                            if bridge_name and bridge_name not in bridges:
+                                bridges.append(bridge_name)
+            except Exception:
+                pass
+                
+        except Exception:
+            pass
+        
+        # Sort and ensure we have at least virbr0 as fallback
+        bridges = sorted(set(bridges))
+        return bridges if bridges else ['virbr0']
+    
     def finish(self):
         """Override finish to handle detached WebSocket connections"""
         try:
@@ -6297,13 +6343,8 @@ class Handler(BaseHTTPRequestHandler):
         nic_list = ''.join(nic_items) if nic_items else '<div class="card"><p style="color: var(--text-secondary); text-align: center; padding: 20px;">No network interfaces attached</p></div>'
         
         # bridge detection for add NIC
-        bridges=[]
-        try:
-            for iface in os.listdir('/sys/class/net'):
-                if os.path.isdir(os.path.join('/sys/class/net',iface,'bridge')):
-                    bridges.append(iface)
-        except Exception: pass
-        bridge_opts=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges) or "<option value='virbr0'>virbr0</option>"
+        bridges = self.get_network_bridges()
+        bridge_opts=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges)
         nic_models=['virtio','e1000','e1000e','rtl8139','vmxnet3','ne2k_pci']
         nic_model_opts=''.join(f"<option value='{m}'>{m}</option>" for m in nic_models)
         nic_add_form=f"""
@@ -7311,13 +7352,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception: pass
         clone_opts='<option value="">(none)</option>'+''.join(f"<option value='{html.escape(f)}'>{html.escape(f)}</option>" for f in imported)
         # bridge list for creation
-        bridges=[]
-        try:
-            for iface in os.listdir('/sys/class/net'):
-                if os.path.isdir(os.path.join('/sys/class/net',iface,'bridge')):
-                    bridges.append(iface)
-        except Exception: pass
-        bridge_sel=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges) or "<option value='virbr0'>virbr0</option>"
+        bridges = self.get_network_bridges()
+        bridge_sel=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges)
         nic_models=['virtio','e1000','e1000e','rtl8139','vmxnet3','ne2k_pci']
         nic_model_opts=''.join(f"<option value='{m}'>{m}</option>" for m in nic_models)
         form_html=f"""<form method='post'><input type='hidden' name='create_vm' value='1'><label>Name <input name='name' required></label><label>OS Type <select name='os_type' class='enh'><option value='linux' selected>Linux</option><option value='windows'>Windows</option></select></label><label>Mem MiB <input name='memory_mb' type='number' value='2048'></label><label>vCPUs <input name='vcpus' type='number' value='2'></label><label>Primary Disk GB <input name='disk_gb' type='number' value='20'></label><label>Clone From Imported Image <select name='clone_src'>{clone_opts}</select></label><label>Extra Disk GB (optional) <input name='extra_disk_gb' type='number' value='0'></label><label>Pool <select name='pool'>{pool_opts}</select></label><label>Bridge <select name='bridge'>{bridge_sel}</select></label><label>NIC Model <select name='nic_model'>{nic_model_opts}</select></label><label>Boot Order <select name='boot_order' class='enh'><option value='hd,cdrom,network'>Hard Disk, CD/DVD, Network</option><option value='cdrom,hd,network'>CD/DVD, Hard Disk, Network</option><option value='network,hd,cdrom'>Network, Hard Disk, CD/DVD</option><option value='hd,network,cdrom'>Hard Disk, Network, CD/DVD</option></select></label><input type='submit' value='Create' class='button'> <a class='button secondary' href='/'>Cancel</a><p class='inline-note'>If clone set, primary size ignored. Imported images found under images/.</p></form>"""
@@ -7327,13 +7363,8 @@ class Handler(BaseHTTPRequestHandler):
         # Pools
         pool_opts=''.join(f"<option>{html.escape(p.name())}</option>" for p in lv.list_pools())
         # Bridges
-        bridges=[]
-        try:
-            for iface in os.listdir('/sys/class/net'):
-                if os.path.isdir(os.path.join('/sys/class/net',iface,'bridge')):
-                    bridges.append(iface)
-        except Exception: pass
-        bridge_sel=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges) or "<option value='virbr0'>virbr0</option>"
+        bridges = self.get_network_bridges()
+        bridge_sel=''.join(f"<option value='{html.escape(b)}'>{html.escape(b)}</option>" for b in bridges)
         nic_models=['virtio','e1000','e1000e','rtl8139','vmxnet3','ne2k_pci']
         nic_model_opts=''.join(f"<option value='{m}'>{m}</option>" for m in nic_models)
         # Imported image list (basename only)
@@ -8127,6 +8158,17 @@ class Handler(BaseHTTPRequestHandler):
                             PROGRESS[btrfs_pid]['msg'] = 'Mounting filesystem'
                             subprocess.check_call(['sudo','mount','-o','noatime,ssd,discard,compress=zstd',devs[0],mnt])
                             
+                            # Change ownership to the user running the script
+                            PROGRESS[btrfs_pid]['pct'] = 90
+                            PROGRESS[btrfs_pid]['msg'] = 'Setting ownership'
+                            try:
+                                import pwd
+                                uid = os.getuid()
+                                user_info = pwd.getpwuid(uid)
+                                subprocess.check_call(['sudo','chown','-R',f"{user_info.pw_name}:{user_info.pw_name}",mnt])
+                            except Exception as e:
+                                logger.warning(f'Failed to chown {mnt}: {e}')
+                            
                             PROGRESS[btrfs_pid]['pct'] = 95
                             PROGRESS[btrfs_pid]['msg'] = 'Updating fstab'
                             try:
@@ -8177,6 +8219,17 @@ class Handler(BaseHTTPRequestHandler):
                             PROGRESS[raid_pid]['msg'] = 'Mounting filesystem'
                             os.makedirs(mnt,exist_ok=True)
                             subprocess.check_call(['sudo','mount',mdpath,mnt])
+                            
+                            # Change ownership to the user running the script
+                            PROGRESS[raid_pid]['pct'] = 80
+                            PROGRESS[raid_pid]['msg'] = 'Setting ownership'
+                            try:
+                                import pwd
+                                uid = os.getuid()
+                                user_info = pwd.getpwuid(uid)
+                                subprocess.check_call(['sudo','chown','-R',f"{user_info.pw_name}:{user_info.pw_name}",mnt])
+                            except Exception as e:
+                                logger.warning(f'Failed to chown {mnt}: {e}')
                             
                             PROGRESS[raid_pid]['pct'] = 90
                             PROGRESS[raid_pid]['msg'] = 'Updating fstab'
